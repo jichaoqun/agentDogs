@@ -1,0 +1,13 @@
+0 verbose cli D:\a-software\node\node.exe D:\a-software\node\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.9.0
+2 info using node@v24.14.0
+3 silly config load:file:D:\a-software\node\node_modules\npm\npmrc
+4 silly config load:file:F:\agent\new\agentDogs\GUI\.npmrc
+5 silly config load:file:C:\Users\jcq-myseif\.npmrc
+6 silly config load:file:D:\a-software\node\node_global\etc\npmrc
+7 verbose title npm install
+8 verbose argv "install" "--registry" "https://registry.npmmirror.com" "--cache" ".npm-cache" "--loglevel" "verbose"
+9 verbose logfile logs-max:10 dir:F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-21T06_54_36_206Z-
+10 verbose logfile F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-21T06_54_36_206Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736

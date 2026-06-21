@@ -1,0 +1,35 @@
+version: 1
+system_prompt: 你是一个专业、可靠的本地智能助手。请准确、简洁地回答用户问题。
+default_model:
+  provider: builtin
+  model: builtin
+history:
+  max_messages: 40
+providers:
+  api:
+    enabled: true
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY:-}
+    model: gpt-4.1-mini
+    models: [gpt-4.1-mini]
+    timeout: 60
+    temperature: 0.7
+    max_tokens: 2048
+    request_body: {}
+  ollama:
+    enabled: true
+    base_url: http://127.0.0.1:11434
+    model: ""
+    auto_select: true
+    timeout: 120
+    temperature: 0.7
+    max_tokens: 2048
+  builtin:
+    enabled: true
+    model: ../model/MiniCPM/MiniCPM5-1B-GGUF/MiniCPM5-1B-Q4_K_M.gguf
+    context_length: 8192
+    gpu_layers: 0
+    threads: 0
+    timeout: 300
+    temperature: 0.7
+    max_tokens: 102400

@@ -1,0 +1,292 @@
+0 verbose cli D:\a-software\node\node.exe D:\a-software\node\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.9.0
+2 info using node@v24.14.0
+3 silly config load:file:D:\a-software\node\node_modules\npm\npmrc
+4 silly config load:file:D:\code\agent\agentDogs\GUI\.npmrc
+5 silly config load:file:C:\Users\jcq-myseif\.npmrc
+6 silly config load:file:D:\a-software\node\node_global\etc\npmrc
+7 verbose title npm ci
+8 verbose argv "ci" "--cache" ".npm-cache"
+9 verbose logfile logs-max:10 dir:D:\code\agent\agentDogs\GUI\.npm-cache\_logs\2026-06-21T09_17_35_772Z-
+10 verbose logfile D:\code\agent\agentDogs\GUI\.npm-cache\_logs\2026-06-21T09_17_35_772Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 silly idealTree buildDeps
+14 silly reify moves {}
+15 silly audit bulk request {
+15 silly audit   '@babel/code-frame': [ '7.29.7' ],
+15 silly audit   '@babel/compat-data': [ '7.29.7' ],
+15 silly audit   '@babel/core': [ '7.29.7' ],
+15 silly audit   '@babel/generator': [ '7.29.7' ],
+15 silly audit   '@babel/helper-compilation-targets': [ '7.29.7' ],
+15 silly audit   '@babel/helper-globals': [ '7.29.7' ],
+15 silly audit   '@babel/helper-module-imports': [ '7.29.7' ],
+15 silly audit   '@babel/helper-module-transforms': [ '7.29.7' ],
+15 silly audit   '@babel/helper-plugin-utils': [ '7.29.7' ],
+15 silly audit   '@babel/helper-string-parser': [ '7.29.7' ],
+15 silly audit   '@babel/helper-validator-identifier': [ '7.29.7' ],
+15 silly audit   '@babel/helper-validator-option': [ '7.29.7' ],
+15 silly audit   '@babel/helpers': [ '7.29.7' ],
+15 silly audit   '@babel/parser': [ '7.29.7' ],
+15 silly audit   '@babel/plugin-transform-react-jsx-self': [ '7.29.7' ],
+15 silly audit   '@babel/plugin-transform-react-jsx-source': [ '7.29.7' ],
+15 silly audit   '@babel/template': [ '7.29.7' ],
+15 silly audit   '@babel/traverse': [ '7.29.7' ],
+15 silly audit   '@babel/types': [ '7.29.7' ],
+15 silly audit   '@esbuild/aix-ppc64': [ '0.24.2' ],
+15 silly audit   '@esbuild/android-arm': [ '0.24.2' ],
+15 silly audit   '@esbuild/android-arm64': [ '0.24.2' ],
+15 silly audit   '@esbuild/android-x64': [ '0.24.2' ],
+15 silly audit   '@esbuild/darwin-arm64': [ '0.24.2' ],
+15 silly audit   '@esbuild/darwin-x64': [ '0.24.2' ],
+15 silly audit   '@esbuild/freebsd-arm64': [ '0.24.2' ],
+15 silly audit   '@esbuild/freebsd-x64': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-arm': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-arm64': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-ia32': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-loong64': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-mips64el': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-ppc64': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-riscv64': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-s390x': [ '0.24.2' ],
+15 silly audit   '@esbuild/linux-x64': [ '0.24.2' ],
+15 silly audit   '@esbuild/netbsd-arm64': [ '0.24.2' ],
+15 silly audit   '@esbuild/netbsd-x64': [ '0.24.2' ],
+15 silly audit   '@esbuild/openbsd-arm64': [ '0.24.2' ],
+15 silly audit   '@esbuild/openbsd-x64': [ '0.24.2' ],
+15 silly audit   '@esbuild/sunos-x64': [ '0.24.2' ],
+15 silly audit   '@esbuild/win32-arm64': [ '0.24.2' ],
+15 silly audit   '@esbuild/win32-ia32': [ '0.24.2' ],
+15 silly audit   '@esbuild/win32-x64': [ '0.24.2' ],
+15 silly audit   '@jridgewell/gen-mapping': [ '0.3.13' ],
+15 silly audit   '@jridgewell/remapping': [ '2.3.5' ],
+15 silly audit   '@jridgewell/resolve-uri': [ '3.1.2' ],
+15 silly audit   '@jridgewell/sourcemap-codec': [ '1.5.5' ],
+15 silly audit   '@jridgewell/trace-mapping': [ '0.3.31' ],
+15 silly audit   '@rollup/rollup-android-arm-eabi': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-android-arm64': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-darwin-arm64': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-darwin-x64': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-freebsd-arm64': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-freebsd-x64': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-arm-gnueabihf': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-arm-musleabihf': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-arm64-gnu': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-arm64-musl': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-loong64-gnu': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-loong64-musl': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-ppc64-gnu': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-ppc64-musl': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-riscv64-gnu': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-riscv64-musl': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-s390x-gnu': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-x64-gnu': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-linux-x64-musl': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-openbsd-x64': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-openharmony-arm64': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-win32-arm64-msvc': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-win32-ia32-msvc': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-win32-x64-gnu': [ '4.62.2' ],
+15 silly audit   '@rollup/rollup-win32-x64-msvc': [ '4.62.2' ],
+15 silly audit   '@types/babel__core': [ '7.20.5' ],
+15 silly audit   '@types/babel__generator': [ '7.27.0' ],
+15 silly audit   '@types/babel__template': [ '7.4.4' ],
+15 silly audit   '@types/babel__traverse': [ '7.28.0' ],
+15 silly audit   '@types/estree': [ '1.0.9' ],
+15 silly audit   '@vitejs/plugin-react': [ '4.3.4' ],
+15 silly audit   'baseline-browser-mapping': [ '2.10.38' ],
+15 silly audit   browserslist: [ '4.28.2' ],
+15 silly audit   'caniuse-lite': [ '1.0.30001799' ],
+15 silly audit   'convert-source-map': [ '2.0.0' ],
+15 silly audit   debug: [ '4.4.3' ],
+15 silly audit   'electron-to-chromium': [ '1.5.376' ],
+15 silly audit   esbuild: [ '0.24.2' ],
+15 silly audit   escalade: [ '3.2.0' ],
+15 silly audit   fsevents: [ '2.3.3' ],
+15 silly audit   gensync: [ '1.0.0-beta.2' ],
+15 silly audit   'js-tokens': [ '4.0.0' ],
+15 silly audit   jsesc: [ '3.1.0' ],
+15 silly audit   json5: [ '2.2.3' ],
+15 silly audit   'loose-envify': [ '1.4.0' ],
+15 silly audit   'lru-cache': [ '5.1.1' ],
+15 silly audit   'lucide-react': [ '0.468.0' ],
+15 silly audit   ms: [ '2.1.3' ],
+15 silly audit   nanoid: [ '3.3.14' ],
+15 silly audit   'node-releases': [ '2.0.48' ],
+15 silly audit   picocolors: [ '1.1.1' ],
+15 silly audit   postcss: [ '8.5.15' ],
+15 silly audit   react: [ '18.3.1' ],
+15 silly audit   'react-dom': [ '18.3.1' ],
+15 silly audit   'react-refresh': [ '0.14.2' ],
+15 silly audit   rollup: [ '4.62.2' ],
+15 silly audit   scheduler: [ '0.23.2' ],
+15 silly audit   semver: [ '6.3.1' ],
+15 silly audit   'source-map-js': [ '1.2.1' ],
+15 silly audit   'update-browserslist-db': [ '1.2.3' ],
+15 silly audit   vite: [ '6.1.0' ],
+15 silly audit   yallist: [ '3.1.1' ]
+15 silly audit }
+16 http cache yallist@https://registry.npmmirror.com/yallist/-/yallist-3.1.1.tgz 0ms (cache hit)
+17 http cache update-browserslist-db@https://registry.npmmirror.com/update-browserslist-db/-/update-browserslist-db-1.2.3.tgz 0ms (cache hit)
+18 http cache vite@https://registry.npmmirror.com/vite/-/vite-6.1.0.tgz 0ms (cache hit)
+19 http cache source-map-js@https://registry.npmmirror.com/source-map-js/-/source-map-js-1.2.1.tgz 0ms (cache hit)
+20 http cache semver@https://registry.npmmirror.com/semver/-/semver-6.3.1.tgz 0ms (cache hit)
+21 http cache scheduler@https://registry.npmmirror.com/scheduler/-/scheduler-0.23.2.tgz 0ms (cache hit)
+22 http cache react@https://registry.npmmirror.com/react/-/react-18.3.1.tgz 0ms (cache hit)
+23 http cache react-refresh@https://registry.npmmirror.com/react-refresh/-/react-refresh-0.14.2.tgz 0ms (cache hit)
+24 http cache postcss@https://registry.npmmirror.com/postcss/-/postcss-8.5.15.tgz 0ms (cache hit)
+25 http cache react-dom@https://registry.npmmirror.com/react-dom/-/react-dom-18.3.1.tgz 0ms (cache hit)
+26 http cache rollup@https://registry.npmmirror.com/rollup/-/rollup-4.62.2.tgz 0ms (cache hit)
+27 http cache picocolors@https://registry.npmmirror.com/picocolors/-/picocolors-1.1.1.tgz 0ms (cache hit)
+28 http cache node-releases@https://registry.npmmirror.com/node-releases/-/node-releases-2.0.48.tgz 0ms (cache hit)
+29 http cache nanoid@https://registry.npmmirror.com/nanoid/-/nanoid-3.3.14.tgz 0ms (cache hit)
+30 http cache lucide-react@https://registry.npmmirror.com/lucide-react/-/lucide-react-0.468.0.tgz 0ms (cache hit)
+31 http cache ms@https://registry.npmmirror.com/ms/-/ms-2.1.3.tgz 0ms (cache hit)
+32 http cache lru-cache@https://registry.npmmirror.com/lru-cache/-/lru-cache-5.1.1.tgz 0ms (cache hit)
+33 http cache json5@https://registry.npmmirror.com/json5/-/json5-2.2.3.tgz 0ms (cache hit)
+34 http cache loose-envify@https://registry.npmmirror.com/loose-envify/-/loose-envify-1.4.0.tgz 0ms (cache hit)
+35 http cache jsesc@https://registry.npmmirror.com/jsesc/-/jsesc-3.1.0.tgz 0ms (cache hit)
+36 http cache js-tokens@https://registry.npmmirror.com/js-tokens/-/js-tokens-4.0.0.tgz 0ms (cache hit)
+37 http cache escalade@https://registry.npmmirror.com/escalade/-/escalade-3.2.0.tgz 0ms (cache hit)
+38 http cache gensync@https://registry.npmmirror.com/gensync/-/gensync-1.0.0-beta.2.tgz 0ms (cache hit)
+39 http cache esbuild@https://registry.npmmirror.com/esbuild/-/esbuild-0.24.2.tgz 0ms (cache hit)
+40 http cache debug@https://registry.npmmirror.com/debug/-/debug-4.4.3.tgz 0ms (cache hit)
+41 http cache electron-to-chromium@https://registry.npmmirror.com/electron-to-chromium/-/electron-to-chromium-1.5.376.tgz 0ms (cache hit)
+42 http cache convert-source-map@https://registry.npmmirror.com/convert-source-map/-/convert-source-map-2.0.0.tgz 0ms (cache hit)
+43 http cache caniuse-lite@https://registry.npmmirror.com/caniuse-lite/-/caniuse-lite-1.0.30001799.tgz 0ms (cache hit)
+44 http cache browserslist@https://registry.npmmirror.com/browserslist/-/browserslist-4.28.2.tgz 0ms (cache hit)
+45 http cache baseline-browser-mapping@https://registry.npmmirror.com/baseline-browser-mapping/-/baseline-browser-mapping-2.10.38.tgz 0ms (cache hit)
+46 http cache @vitejs/plugin-react@https://registry.npmmirror.com/@vitejs/plugin-react/-/plugin-react-4.3.4.tgz 0ms (cache hit)
+47 http cache @types/estree@https://registry.npmmirror.com/@types/estree/-/estree-1.0.9.tgz 0ms (cache hit)
+48 http cache @types/babel__generator@https://registry.npmmirror.com/@types/babel__generator/-/babel__generator-7.27.0.tgz 0ms (cache hit)
+49 http cache @types/babel__template@https://registry.npmmirror.com/@types/babel__template/-/babel__template-7.4.4.tgz 0ms (cache hit)
+50 http cache @types/babel__core@https://registry.npmmirror.com/@types/babel__core/-/babel__core-7.20.5.tgz 0ms (cache hit)
+51 http cache @jridgewell/trace-mapping@https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz 0ms (cache hit)
+52 http cache @types/babel__traverse@https://registry.npmmirror.com/@types/babel__traverse/-/babel__traverse-7.28.0.tgz 0ms (cache hit)
+53 http cache @rollup/rollup-win32-x64-msvc@https://registry.npmmirror.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.62.2.tgz 0ms (cache hit)
+54 http cache @jridgewell/sourcemap-codec@https://registry.npmmirror.com/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz 0ms (cache hit)
+55 http cache @rollup/rollup-win32-x64-gnu@https://registry.npmmirror.com/@rollup/rollup-win32-x64-gnu/-/rollup-win32-x64-gnu-4.62.2.tgz 0ms (cache hit)
+56 http cache @jridgewell/resolve-uri@https://registry.npmmirror.com/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz 0ms (cache hit)
+57 http cache @jridgewell/remapping@https://registry.npmmirror.com/@jridgewell/remapping/-/remapping-2.3.5.tgz 0ms (cache hit)
+58 http cache @jridgewell/gen-mapping@https://registry.npmmirror.com/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz 0ms (cache hit)
+59 http cache @babel/types@https://registry.npmmirror.com/@babel/types/-/types-7.29.7.tgz 0ms (cache hit)
+60 http cache @esbuild/win32-x64@https://registry.npmmirror.com/@esbuild/win32-x64/-/win32-x64-0.24.2.tgz 0ms (cache hit)
+61 http cache @babel/template@https://registry.npmmirror.com/@babel/template/-/template-7.29.7.tgz 0ms (cache hit)
+62 http cache @babel/traverse@https://registry.npmmirror.com/@babel/traverse/-/traverse-7.29.7.tgz 0ms (cache hit)
+63 http cache @babel/parser@https://registry.npmmirror.com/@babel/parser/-/parser-7.29.7.tgz 0ms (cache hit)
+64 http cache @babel/helpers@https://registry.npmmirror.com/@babel/helpers/-/helpers-7.29.7.tgz 0ms (cache hit)
+65 http cache @babel/plugin-transform-react-jsx-source@https://registry.npmmirror.com/@babel/plugin-transform-react-jsx-source/-/plugin-transform-react-jsx-source-7.29.7.tgz 0ms (cache hit)
+66 http cache @babel/plugin-transform-react-jsx-self@https://registry.npmmirror.com/@babel/plugin-transform-react-jsx-self/-/plugin-transform-react-jsx-self-7.29.7.tgz 0ms (cache hit)
+67 http cache @babel/helper-validator-option@https://registry.npmmirror.com/@babel/helper-validator-option/-/helper-validator-option-7.29.7.tgz 0ms (cache hit)
+68 http cache @babel/helper-validator-identifier@https://registry.npmmirror.com/@babel/helper-validator-identifier/-/helper-validator-identifier-7.29.7.tgz 0ms (cache hit)
+69 http cache @babel/helper-string-parser@https://registry.npmmirror.com/@babel/helper-string-parser/-/helper-string-parser-7.29.7.tgz 0ms (cache hit)
+70 http cache @babel/helper-plugin-utils@https://registry.npmmirror.com/@babel/helper-plugin-utils/-/helper-plugin-utils-7.29.7.tgz 0ms (cache hit)
+71 http cache @babel/helper-module-transforms@https://registry.npmmirror.com/@babel/helper-module-transforms/-/helper-module-transforms-7.29.7.tgz 0ms (cache hit)
+72 http cache @babel/helper-globals@https://registry.npmmirror.com/@babel/helper-globals/-/helper-globals-7.29.7.tgz 0ms (cache hit)
+73 http cache @babel/helper-module-imports@https://registry.npmmirror.com/@babel/helper-module-imports/-/helper-module-imports-7.29.7.tgz 0ms (cache hit)
+74 http cache @babel/helper-compilation-targets@https://registry.npmmirror.com/@babel/helper-compilation-targets/-/helper-compilation-targets-7.29.7.tgz 0ms (cache hit)
+75 http cache @babel/core@https://registry.npmmirror.com/@babel/core/-/core-7.29.7.tgz 0ms (cache hit)
+76 http cache @babel/generator@https://registry.npmmirror.com/@babel/generator/-/generator-7.29.7.tgz 0ms (cache hit)
+77 http cache @babel/compat-data@https://registry.npmmirror.com/@babel/compat-data/-/compat-data-7.29.7.tgz 0ms (cache hit)
+78 http cache @babel/code-frame@https://registry.npmmirror.com/@babel/code-frame/-/code-frame-7.29.7.tgz 0ms (cache hit)
+79 http fetch POST 404 https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk 967ms (cache skip)
+80 verbose audit error HttpErrorGeneral: 404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk - [NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet
+80 verbose audit error     at D:\a-software\node\node_modules\npm\node_modules\npm-registry-fetch\lib\check-response.js:103:15
+80 verbose audit error     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+80 verbose audit error     at async #getReport (D:\a-software\node\node_modules\npm\node_modules\@npmcli\arborist\lib\audit-report.js:275:19)
+80 verbose audit error     at async AuditReport.run (D:\a-software\node\node_modules\npm\node_modules\@npmcli\arborist\lib\audit-report.js:100:19) {
+80 verbose audit error   headers: [Object: null prototype] {
+80 verbose audit error     server: [ 'Tengine' ],
+80 verbose audit error     date: [ 'Sun, 21 Jun 2026 09:17:36 GMT' ],
+80 verbose audit error     'content-type': [ 'application/json' ],
+80 verbose audit error     'transfer-encoding': [ 'chunked' ],
+80 verbose audit error     connection: [ 'keep-alive' ],
+80 verbose audit error     'strict-transport-security': [ 'max-age=5184000' ],
+80 verbose audit error     via: [ 'kunlun8.cn5212[,404666]' ],
+80 verbose audit error     'timing-allow-origin': [ '*' ],
+80 verbose audit error     eagleid: [ '7ae4df1c17820334568015077e' ],
+80 verbose audit error     'x-fetch-attempts': [ '1' ],
+80 verbose audit error     'x-local-cache-status': [ 'skip' ]
+80 verbose audit error   },
+80 verbose audit error   statusCode: 404,
+80 verbose audit error   code: 'E404',
+80 verbose audit error   method: 'POST',
+80 verbose audit error   uri: 'https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk',
+80 verbose audit error   body: {
+80 verbose audit error     error: '[NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet'
+80 verbose audit error   },
+80 verbose audit error   pkgid: undefined
+80 verbose audit error }
+81 silly audit error [object Object]
+82 silly audit report null
+83 info run esbuild@0.24.2 postinstall node_modules/esbuild node install.js
+84 info run esbuild@0.24.2 postinstall { code: 0, signal: null }
+85 silly ADD node_modules/yallist
+86 silly ADD node_modules/vite
+87 silly ADD node_modules/update-browserslist-db
+88 silly ADD node_modules/source-map-js
+89 silly ADD node_modules/semver
+90 silly ADD node_modules/scheduler
+91 silly ADD node_modules/rollup
+92 silly ADD node_modules/react-refresh
+93 silly ADD node_modules/react-dom
+94 silly ADD node_modules/react
+95 silly ADD node_modules/postcss
+96 silly ADD node_modules/picocolors
+97 silly ADD node_modules/node-releases
+98 silly ADD node_modules/nanoid
+99 silly ADD node_modules/ms
+100 silly ADD node_modules/lucide-react
+101 silly ADD node_modules/lru-cache
+102 silly ADD node_modules/loose-envify
+103 silly ADD node_modules/json5
+104 silly ADD node_modules/jsesc
+105 silly ADD node_modules/js-tokens
+106 silly ADD node_modules/gensync
+107 silly ADD node_modules/escalade
+108 silly ADD node_modules/esbuild
+109 silly ADD node_modules/electron-to-chromium
+110 silly ADD node_modules/debug
+111 silly ADD node_modules/convert-source-map
+112 silly ADD node_modules/caniuse-lite
+113 silly ADD node_modules/browserslist
+114 silly ADD node_modules/baseline-browser-mapping
+115 silly ADD node_modules/@vitejs/plugin-react
+116 silly ADD node_modules/@types/estree
+117 silly ADD node_modules/@types/babel__traverse
+118 silly ADD node_modules/@types/babel__template
+119 silly ADD node_modules/@types/babel__generator
+120 silly ADD node_modules/@types/babel__core
+121 silly ADD node_modules/@rollup/rollup-win32-x64-msvc
+122 silly ADD node_modules/@rollup/rollup-win32-x64-gnu
+123 silly ADD node_modules/@jridgewell/trace-mapping
+124 silly ADD node_modules/@jridgewell/sourcemap-codec
+125 silly ADD node_modules/@jridgewell/resolve-uri
+126 silly ADD node_modules/@jridgewell/remapping
+127 silly ADD node_modules/@jridgewell/gen-mapping
+128 silly ADD node_modules/@esbuild/win32-x64
+129 silly ADD node_modules/@babel/types
+130 silly ADD node_modules/@babel/traverse
+131 silly ADD node_modules/@babel/template
+132 silly ADD node_modules/@babel/plugin-transform-react-jsx-source
+133 silly ADD node_modules/@babel/plugin-transform-react-jsx-self
+134 silly ADD node_modules/@babel/parser
+135 silly ADD node_modules/@babel/helpers
+136 silly ADD node_modules/@babel/helper-validator-option
+137 silly ADD node_modules/@babel/helper-validator-identifier
+138 silly ADD node_modules/@babel/helper-string-parser
+139 silly ADD node_modules/@babel/helper-plugin-utils
+140 silly ADD node_modules/@babel/helper-module-transforms
+141 silly ADD node_modules/@babel/helper-module-imports
+142 silly ADD node_modules/@babel/helper-globals
+143 silly ADD node_modules/@babel/helper-compilation-targets
+144 silly ADD node_modules/@babel/generator
+145 silly ADD node_modules/@babel/core
+146 silly ADD node_modules/@babel/compat-data
+147 silly ADD node_modules/@babel/code-frame
+148 verbose cwd D:\code\agent\agentDogs\GUI
+149 verbose os Windows_NT 10.0.26200
+150 verbose node v24.14.0
+151 verbose npm  v11.9.0
+152 verbose exit 0
+153 info ok

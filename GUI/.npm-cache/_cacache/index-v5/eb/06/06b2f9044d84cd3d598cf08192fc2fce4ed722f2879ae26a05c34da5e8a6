@@ -1,0 +1,2 @@
+
+405112f92f3c126fdb62a8d58cc9250ec989396d	{"key":"make-fetch-happen:request-cache:https://registry.npm.taobao.org/@oxc-project%2ftypes","integrity":null,"time":1781967178981,"size":"262","metadata":{"time":1781967178981,"url":"https://registry.npm.taobao.org/@oxc-project%2ftypes","reqHeaders":{"accept":"application/json"},"resHeaders":{"content-type":"text/html","date":"Sat, 20 Jun 2026 14:52:58 GMT","location":"https://registry.npmmirror.com/@oxc-project%2ftypes"},"options":{"compress":true},"status":301}}

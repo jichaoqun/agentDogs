@@ -1,0 +1,100 @@
+0 verbose cli D:\a-software\node\node.exe D:\a-software\node\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.9.0
+2 info using node@v24.14.0
+3 silly config load:file:D:\a-software\node\node_modules\npm\npmrc
+4 silly config load:file:F:\agent\new\agentDogs\GUI\.npmrc
+5 silly config load:file:C:\Users\jcq-myseif\.npmrc
+6 silly config load:file:D:\a-software\node\node_global\etc\npmrc
+7 verbose title npm install
+8 verbose argv "install" "--cache" ".npm-cache"
+9 verbose logfile logs-max:10 dir:F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-20T15_31_18_293Z-
+10 verbose logfile F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-20T15_31_18_293Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 silly idealTree buildDeps
+14 silly fetch manifest @vitejs/plugin-react@latest
+15 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fplugin-react cache-miss
+16 http fetch GET 200 https://registry.npmmirror.com/@vitejs%2fplugin-react 17187ms (cache revalidated)
+17 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fplugin-react set size:273371 disposed:false
+18 silly fetch manifest @rolldown/plugin-babel@^0.1.7 || ^0.2.0
+19 silly packumentCache full:https://registry.npm.taobao.org/@rolldown%2fplugin-babel cache-miss
+20 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fplugin-babel 10954ms (cache revalidated)
+21 silly packumentCache full:https://registry.npm.taobao.org/@rolldown%2fplugin-babel set size:43709 disposed:false
+22 silly fetch manifest @babel/core@^7.29.0 || ^8.0.0-rc.1
+23 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fcore cache-miss
+24 http fetch GET 200 https://registry.npmmirror.com/@babel%2fcore 14949ms (cache revalidated)
+25 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fcore set size:716390 disposed:false
+26 silly fetch manifest @babel/plugin-transform-runtime@^7.29.0 || ^8.0.0-rc.1
+27 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fplugin-transform-runtime cache-miss
+28 http fetch GET 200 https://registry.npmmirror.com/@babel%2fplugin-transform-runtime 10332ms (cache revalidated)
+29 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fplugin-transform-runtime set size:420358 disposed:false
+30 silly fetch manifest @babel/runtime@^7.27.0 || ^8.0.0-rc.1
+31 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fruntime cache-miss
+32 http fetch GET 200 https://registry.npmmirror.com/@babel%2fruntime 8693ms (cache revalidated)
+33 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fruntime set size:3403563 disposed:false
+34 silly fetch manifest rolldown@^1.0.0-rc.5
+35 silly packumentCache full:https://registry.npm.taobao.org/rolldown cache-miss
+36 http fetch GET 200 https://registry.npmmirror.com/rolldown 9594ms (cache revalidated)
+37 silly packumentCache full:https://registry.npm.taobao.org/rolldown set size:3814736 disposed:false
+38 silly fetch manifest vite@latest
+39 silly packumentCache full:https://registry.npm.taobao.org/vite cache-miss
+40 http fetch GET 200 https://registry.npmmirror.com/vite 7285ms (cache revalidated)
+41 silly packumentCache full:https://registry.npm.taobao.org/vite set size:38694014 disposed:false
+42 silly fetch manifest @types/node@^20.19.0 || >=22.12.0
+43 silly packumentCache full:https://registry.npm.taobao.org/@types%2fnode cache-miss
+44 http fetch GET 200 https://registry.npmmirror.com/@types%2fnode 6554ms (cache revalidated)
+45 silly packumentCache full:https://registry.npm.taobao.org/@types%2fnode set size:10302654 disposed:false
+46 silly fetch manifest @vitejs/devtools@^0.1.18
+47 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fdevtools cache-miss
+48 http fetch GET 200 https://registry.npmmirror.com/@vitejs%2fdevtools 8703ms (cache revalidated)
+49 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fdevtools set size:230547 disposed:false
+50 silly fetch manifest esbuild@^0.27.0 || ^0.28.0
+51 silly packumentCache full:https://registry.npm.taobao.org/esbuild cache-miss
+52 http fetch GET 200 https://registry.npmmirror.com/esbuild 8165ms (cache revalidated)
+53 silly packumentCache full:https://registry.npm.taobao.org/esbuild set size:1010140 disposed:false
+54 silly fetch manifest jiti@>=1.21.0
+55 silly packumentCache full:https://registry.npm.taobao.org/jiti cache-miss
+56 http fetch GET 200 https://registry.npmmirror.com/jiti 9363ms (cache revalidated)
+57 silly packumentCache full:https://registry.npm.taobao.org/jiti set size:349233 disposed:false
+58 silly fetch manifest less@^4.0.0
+59 silly packumentCache full:https://registry.npm.taobao.org/less cache-miss
+60 http fetch GET 200 https://registry.npmmirror.com/less 6838ms (cache revalidated)
+61 silly packumentCache full:https://registry.npm.taobao.org/less set size:440583 disposed:false
+62 silly fetch manifest sass@^1.70.0
+63 silly packumentCache full:https://registry.npm.taobao.org/sass cache-miss
+64 http fetch GET 200 https://registry.npmmirror.com/sass 7830ms (cache revalidated)
+65 silly packumentCache full:https://registry.npm.taobao.org/sass set size:605392 disposed:false
+66 silly fetch manifest sass-embedded@^1.70.0
+67 silly packumentCache full:https://registry.npm.taobao.org/sass-embedded cache-miss
+68 http fetch GET 200 https://registry.npmmirror.com/sass-embedded 7125ms (cache revalidated)
+69 silly packumentCache full:https://registry.npm.taobao.org/sass-embedded set size:431111 disposed:false
+70 silly fetch manifest stylus@>=0.54.8
+71 silly packumentCache full:https://registry.npm.taobao.org/stylus cache-miss
+72 http fetch GET 200 https://registry.npmmirror.com/stylus 7916ms (cache revalidated)
+73 silly packumentCache full:https://registry.npm.taobao.org/stylus set size:312391 disposed:false
+74 silly fetch manifest sugarss@^5.0.0
+75 silly packumentCache full:https://registry.npm.taobao.org/sugarss cache-miss
+76 http fetch GET 200 https://registry.npmmirror.com/sugarss 8303ms (cache revalidated)
+77 silly packumentCache full:https://registry.npm.taobao.org/sugarss set size:38248 disposed:false
+78 silly fetch manifest postcss@^8.3.3
+79 silly packumentCache full:https://registry.npm.taobao.org/postcss cache-miss
+80 http fetch GET 200 https://registry.npmmirror.com/postcss 11752ms (cache revalidated)
+81 silly packumentCache full:https://registry.npm.taobao.org/postcss set size:639981 disposed:false
+82 silly fetch manifest terser@^5.16.0
+83 silly packumentCache full:https://registry.npm.taobao.org/terser cache-miss
+84 http fetch GET 200 https://registry.npmmirror.com/terser 8459ms (cache revalidated)
+85 silly packumentCache full:https://registry.npm.taobao.org/terser set size:704380 disposed:false
+86 silly fetch manifest tsx@^4.8.1
+87 silly packumentCache full:https://registry.npm.taobao.org/tsx cache-miss
+88 http fetch GET 200 https://registry.npmmirror.com/tsx 9789ms (cache revalidated)
+89 silly packumentCache full:https://registry.npm.taobao.org/tsx set size:318921 disposed:false
+90 silly fetch manifest yaml@^2.4.2
+91 silly packumentCache full:https://registry.npm.taobao.org/yaml cache-miss
+92 http fetch GET 200 https://registry.npmmirror.com/yaml 14042ms (cache revalidated)
+93 silly packumentCache full:https://registry.npm.taobao.org/yaml set size:344021 disposed:false
+94 silly fetch manifest babel-plugin-react-compiler@^1.0.0
+95 silly packumentCache full:https://registry.npm.taobao.org/babel-plugin-react-compiler cache-miss
+96 http fetch GET 200 https://registry.npmmirror.com/babel-plugin-react-compiler 8947ms (cache revalidated)
+97 silly packumentCache full:https://registry.npm.taobao.org/babel-plugin-react-compiler set size:1411987 disposed:false
+98 silly fetch manifest react@latest
+99 silly packumentCache full:https://registry.npm.taobao.org/react cache-miss

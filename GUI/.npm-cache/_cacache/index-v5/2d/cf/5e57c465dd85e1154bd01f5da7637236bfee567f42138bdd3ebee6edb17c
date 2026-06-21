@@ -1,0 +1,2 @@
+
+ac243e448c032f52f3e4fdcc3123f0e8ca61498a	{"key":"make-fetch-happen:request-cache:https://registry.npm.taobao.org/scheduler","integrity":null,"time":1781967175514,"size":"262","metadata":{"time":1781967175514,"url":"https://registry.npm.taobao.org/scheduler","reqHeaders":{"accept":"application/json"},"resHeaders":{"content-type":"text/html","date":"Sat, 20 Jun 2026 14:52:55 GMT","location":"https://registry.npmmirror.com/scheduler"},"options":{"compress":true},"status":301}}

@@ -1,0 +1,203 @@
+0 verbose cli D:\a-software\node\node.exe D:\a-software\node\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.9.0
+2 info using node@v24.14.0
+3 silly config load:file:D:\a-software\node\node_modules\npm\npmrc
+4 silly config load:file:F:\agent\new\agentDogs\GUI\.npmrc
+5 silly config load:file:C:\Users\jcq-myseif\.npmrc
+6 silly config load:file:D:\a-software\node\node_global\etc\npmrc
+7 verbose title npm install
+8 verbose argv "install" "--cache" ".npm-cache"
+9 verbose logfile logs-max:10 dir:F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-20T15_35_25_357Z-
+10 verbose logfile F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-20T15_35_25_357Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 silly idealTree buildDeps
+14 silly fetch manifest @vitejs/plugin-react@latest
+15 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fplugin-react cache-miss
+16 http cache https://registry.npmmirror.com/@vitejs%2fplugin-react 9891ms (cache hit)
+17 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fplugin-react set size:273371 disposed:false
+18 silly fetch manifest @rolldown/plugin-babel@^0.1.7 || ^0.2.0
+19 silly packumentCache full:https://registry.npm.taobao.org/@rolldown%2fplugin-babel cache-miss
+20 http cache https://registry.npmmirror.com/@rolldown%2fplugin-babel 8583ms (cache hit)
+21 silly packumentCache full:https://registry.npm.taobao.org/@rolldown%2fplugin-babel set size:43709 disposed:false
+22 silly fetch manifest @babel/core@^7.29.0 || ^8.0.0-rc.1
+23 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fcore cache-miss
+24 http cache https://registry.npmmirror.com/@babel%2fcore 9170ms (cache hit)
+25 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fcore set size:716390 disposed:false
+26 silly fetch manifest @babel/plugin-transform-runtime@^7.29.0 || ^8.0.0-rc.1
+27 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fplugin-transform-runtime cache-miss
+28 http cache https://registry.npmmirror.com/@babel%2fplugin-transform-runtime 7017ms (cache hit)
+29 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fplugin-transform-runtime set size:420358 disposed:false
+30 silly fetch manifest @babel/runtime@^7.27.0 || ^8.0.0-rc.1
+31 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fruntime cache-miss
+32 http cache https://registry.npmmirror.com/@babel%2fruntime 7555ms (cache hit)
+33 silly packumentCache full:https://registry.npm.taobao.org/@babel%2fruntime set size:3403563 disposed:false
+34 silly fetch manifest rolldown@^1.0.0-rc.5
+35 silly packumentCache full:https://registry.npm.taobao.org/rolldown cache-miss
+36 http cache https://registry.npmmirror.com/rolldown 8197ms (cache hit)
+37 silly packumentCache full:https://registry.npm.taobao.org/rolldown set size:3814736 disposed:false
+38 silly fetch manifest vite@latest
+39 silly packumentCache full:https://registry.npm.taobao.org/vite cache-miss
+40 http cache https://registry.npmmirror.com/vite 9457ms (cache hit)
+41 silly packumentCache full:https://registry.npm.taobao.org/vite set size:38694014 disposed:false
+42 silly fetch manifest @types/node@^20.19.0 || >=22.12.0
+43 silly packumentCache full:https://registry.npm.taobao.org/@types%2fnode cache-miss
+44 http cache https://registry.npmmirror.com/@types%2fnode 8460ms (cache hit)
+45 silly packumentCache full:https://registry.npm.taobao.org/@types%2fnode set size:10302654 disposed:false
+46 silly fetch manifest @vitejs/devtools@^0.1.18
+47 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fdevtools cache-miss
+48 http cache https://registry.npmmirror.com/@vitejs%2fdevtools 11062ms (cache hit)
+49 silly packumentCache full:https://registry.npm.taobao.org/@vitejs%2fdevtools set size:230547 disposed:false
+50 silly fetch manifest esbuild@^0.27.0 || ^0.28.0
+51 silly packumentCache full:https://registry.npm.taobao.org/esbuild cache-miss
+52 http cache https://registry.npmmirror.com/esbuild 8422ms (cache hit)
+53 silly packumentCache full:https://registry.npm.taobao.org/esbuild set size:1010140 disposed:false
+54 silly fetch manifest jiti@>=1.21.0
+55 silly packumentCache full:https://registry.npm.taobao.org/jiti cache-miss
+56 http cache https://registry.npmmirror.com/jiti 14012ms (cache hit)
+57 silly packumentCache full:https://registry.npm.taobao.org/jiti set size:349233 disposed:false
+58 silly fetch manifest less@^4.0.0
+59 silly packumentCache full:https://registry.npm.taobao.org/less cache-miss
+60 http cache https://registry.npmmirror.com/less 7918ms (cache hit)
+61 silly packumentCache full:https://registry.npm.taobao.org/less set size:440583 disposed:false
+62 silly fetch manifest sass@^1.70.0
+63 silly packumentCache full:https://registry.npm.taobao.org/sass cache-miss
+64 http cache https://registry.npmmirror.com/sass 13866ms (cache hit)
+65 silly packumentCache full:https://registry.npm.taobao.org/sass set size:605392 disposed:false
+66 silly fetch manifest sass-embedded@^1.70.0
+67 silly packumentCache full:https://registry.npm.taobao.org/sass-embedded cache-miss
+68 http cache https://registry.npmmirror.com/sass-embedded 8837ms (cache hit)
+69 silly packumentCache full:https://registry.npm.taobao.org/sass-embedded set size:431111 disposed:false
+70 silly fetch manifest stylus@>=0.54.8
+71 silly packumentCache full:https://registry.npm.taobao.org/stylus cache-miss
+72 http cache https://registry.npmmirror.com/stylus 13924ms (cache hit)
+73 silly packumentCache full:https://registry.npm.taobao.org/stylus set size:312391 disposed:false
+74 silly fetch manifest sugarss@^5.0.0
+75 silly packumentCache full:https://registry.npm.taobao.org/sugarss cache-miss
+76 http cache https://registry.npmmirror.com/sugarss 12005ms (cache hit)
+77 silly packumentCache full:https://registry.npm.taobao.org/sugarss set size:38248 disposed:false
+78 silly fetch manifest postcss@^8.3.3
+79 silly packumentCache full:https://registry.npm.taobao.org/postcss cache-miss
+80 http cache https://registry.npmmirror.com/postcss 11199ms (cache hit)
+81 silly packumentCache full:https://registry.npm.taobao.org/postcss set size:639981 disposed:false
+82 silly fetch manifest terser@^5.16.0
+83 silly packumentCache full:https://registry.npm.taobao.org/terser cache-miss
+84 http cache https://registry.npmmirror.com/terser 6341ms (cache hit)
+85 silly packumentCache full:https://registry.npm.taobao.org/terser set size:704380 disposed:false
+86 silly fetch manifest tsx@^4.8.1
+87 silly packumentCache full:https://registry.npm.taobao.org/tsx cache-miss
+88 http cache https://registry.npmmirror.com/tsx 9644ms (cache hit)
+89 silly packumentCache full:https://registry.npm.taobao.org/tsx set size:318921 disposed:false
+90 silly fetch manifest yaml@^2.4.2
+91 silly packumentCache full:https://registry.npm.taobao.org/yaml cache-miss
+92 http cache https://registry.npmmirror.com/yaml 7766ms (cache hit)
+93 silly packumentCache full:https://registry.npm.taobao.org/yaml set size:344021 disposed:false
+94 silly fetch manifest babel-plugin-react-compiler@^1.0.0
+95 silly packumentCache full:https://registry.npm.taobao.org/babel-plugin-react-compiler cache-miss
+96 http cache https://registry.npmmirror.com/babel-plugin-react-compiler 7275ms (cache hit)
+97 silly packumentCache full:https://registry.npm.taobao.org/babel-plugin-react-compiler set size:1411987 disposed:false
+98 silly fetch manifest react@latest
+99 silly packumentCache full:https://registry.npm.taobao.org/react cache-miss
+100 http fetch GET 200 https://registry.npmmirror.com/react 7877ms (cache revalidated)
+101 silly packumentCache full:https://registry.npm.taobao.org/react set size:6465671 disposed:false
+102 silly fetch manifest react-dom@latest
+103 silly packumentCache full:https://registry.npm.taobao.org/react-dom cache-miss
+104 http fetch GET 200 https://registry.npmmirror.com/react-dom 11413ms (cache revalidated)
+105 silly packumentCache full:https://registry.npm.taobao.org/react-dom set size:8705348 disposed:false
+106 silly fetch manifest lucide-react@latest
+107 silly packumentCache full:https://registry.npm.taobao.org/lucide-react cache-miss
+108 http fetch GET 200 https://registry.npmmirror.com/lucide-react 7574ms (cache revalidated)
+109 silly packumentCache full:https://registry.npm.taobao.org/lucide-react set size:2341685 disposed:false
+110 silly placeDep ROOT @vitejs/plugin-react@6.0.2 OK for: agentdogs-gui@0.1.0 want: latest
+111 silly placeDep ROOT vite@8.0.16 OK for: @vitejs/plugin-react@6.0.2 want: ^8.0.0
+112 silly placeDep ROOT lucide-react@1.21.0 OK for: agentdogs-gui@0.1.0 want: latest
+113 silly placeDep ROOT react@19.2.7 OK for: lucide-react@1.21.0 want: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+114 silly placeDep ROOT react-dom@19.2.7 OK for: agentdogs-gui@0.1.0 want: latest
+115 silly fetch manifest fsevents@~2.3.3
+116 silly packumentCache full:https://registry.npm.taobao.org/fsevents cache-miss
+117 http fetch GET 200 https://registry.npmmirror.com/fsevents 7984ms (cache revalidated)
+118 silly packumentCache full:https://registry.npm.taobao.org/fsevents set size:122258 disposed:false
+119 silly placeDep ROOT fsevents@2.3.3 OK for: vite@8.0.16 want: ~2.3.3
+120 silly reify mark retired [
+120 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\nanoid',
+120 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\nanoid',
+120 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\nanoid.cmd',
+120 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\nanoid.ps1'
+120 silly reify ]
+121 silly reify mark retired [
+121 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\rolldown',
+121 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\rolldown',
+121 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\rolldown.cmd',
+121 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\rolldown.ps1'
+121 silly reify ]
+122 silly reify moves {
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\nanoid': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.nanoid-9OghcENb',
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\nanoid': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\.nanoid-wHHs3bWW',
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\nanoid.cmd': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\.nanoid.cmd-Q49HOmCd',
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\nanoid.ps1': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\.nanoid.ps1-i8z5Q7zb',
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\rolldown': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.rolldown-9601tPIu',
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\rolldown': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\.rolldown-PnI2v5Fa',
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\rolldown.cmd': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\.rolldown.cmd-jE8UTS81',
+122 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\rolldown.ps1': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.bin\\.rolldown.ps1-zsVrT5HQ'
+122 silly reify }
+123 silly audit bulk request {
+123 silly audit   fdir: [ '6.5.0' ],
+123 silly audit   'lightningcss-win32-x64-msvc': [ '1.32.0' ],
+123 silly audit   'detect-libc': [ '2.1.2' ],
+123 silly audit   lightningcss: [ '1.32.0' ],
+123 silly audit   nanoid: [ '3.3.14' ],
+123 silly audit   picomatch: [ '4.0.4' ],
+123 silly audit   picocolors: [ '1.1.1' ],
+123 silly audit   postcss: [ '8.5.15' ],
+123 silly audit   rolldown: [ '1.0.3' ],
+123 silly audit   scheduler: [ '0.27.0' ],
+123 silly audit   'source-map-js': [ '1.2.1' ],
+123 silly audit   '@rolldown/binding-win32-x64-msvc': [ '1.0.3' ],
+123 silly audit   tinyglobby: [ '0.2.17' ],
+123 silly audit   '@rolldown/pluginutils': [ '1.0.1' ],
+123 silly audit   '@oxc-project/types': [ '0.133.0' ],
+123 silly audit   '@vitejs/plugin-react': [ '6.0.2' ],
+123 silly audit   vite: [ '8.0.16' ],
+123 silly audit   'lucide-react': [ '1.21.0' ],
+123 silly audit   react: [ '19.2.7' ],
+123 silly audit   'react-dom': [ '19.2.7' ],
+123 silly audit   fsevents: [ '2.3.3' ]
+123 silly audit }
+124 http cache react-dom@https://registry.npmmirror.com/react-dom/-/react-dom-19.2.7.tgz 1ms (cache hit)
+125 http cache react@https://registry.npmmirror.com/react/-/react-19.2.7.tgz 0ms (cache hit)
+126 http cache lucide-react@https://registry.npmmirror.com/lucide-react/-/lucide-react-1.21.0.tgz 0ms (cache hit)
+127 http cache vite@https://registry.npmmirror.com/vite/-/vite-8.0.16.tgz 0ms (cache hit)
+128 silly packumentCache corgi:https://registry.npm.taobao.org/rolldown cache-miss
+129 silly tarball no local data for lucide-react@https://registry.npmmirror.com/lucide-react/-/lucide-react-1.21.0.tgz. Extracting by manifest.
+130 silly packumentCache corgi:https://registry.npm.taobao.org/nanoid cache-miss
+131 http cache @vitejs/plugin-react@https://registry.npmmirror.com/@vitejs/plugin-react/-/plugin-react-6.0.2.tgz 0ms (cache hit)
+132 http fetch POST 404 https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk 1528ms (cache skip)
+133 verbose audit error HttpErrorGeneral: 404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk - [NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet
+133 verbose audit error     at D:\a-software\node\node_modules\npm\node_modules\npm-registry-fetch\lib\check-response.js:103:15
+133 verbose audit error     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+133 verbose audit error     at async #getReport (D:\a-software\node\node_modules\npm\node_modules\@npmcli\arborist\lib\audit-report.js:275:19)
+133 verbose audit error     at async AuditReport.run (D:\a-software\node\node_modules\npm\node_modules\@npmcli\arborist\lib\audit-report.js:100:19) {
+133 verbose audit error   headers: [Object: null prototype] {
+133 verbose audit error     server: [ 'Tengine' ],
+133 verbose audit error     date: [ 'Sat, 20 Jun 2026 15:39:27 GMT' ],
+133 verbose audit error     'content-type': [ 'application/json' ],
+133 verbose audit error     'transfer-encoding': [ 'chunked' ],
+133 verbose audit error     connection: [ 'keep-alive' ],
+133 verbose audit error     'strict-transport-security': [ 'max-age=5184000' ],
+133 verbose audit error     via: [ 'kunlun10.cn7971[,404666]' ],
+133 verbose audit error     'timing-allow-origin': [ '*' ],
+133 verbose audit error     eagleid: [ '7ae4d61e17819699677301001e' ],
+133 verbose audit error     'x-fetch-attempts': [ '1' ],
+133 verbose audit error     'x-local-cache-status': [ 'skip' ]
+133 verbose audit error   },
+133 verbose audit error   statusCode: 404,
+133 verbose audit error   code: 'E404',
+133 verbose audit error   method: 'POST',
+133 verbose audit error   uri: 'https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk',
+133 verbose audit error   body: {
+133 verbose audit error     error: '[NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet'
+133 verbose audit error   },
+133 verbose audit error   pkgid: undefined
+133 verbose audit error }
+134 silly audit error [object Object]
+135 silly audit report null

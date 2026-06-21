@@ -1,0 +1,1 @@
+"""Local intelligent assistant package."""

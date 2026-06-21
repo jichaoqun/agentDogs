@@ -1,0 +1,352 @@
+0 verbose cli D:\a-software\node\node.exe D:\a-software\node\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.9.0
+2 info using node@v24.14.0
+3 silly config load:file:D:\a-software\node\node_modules\npm\npmrc
+4 silly config load:file:F:\agent\new\agentDogs\GUI\.npmrc
+5 silly config load:file:C:\Users\jcq-myseif\.npmrc
+6 silly config load:file:D:\a-software\node\node_global\etc\npmrc
+7 verbose title npm install
+8 verbose argv "install" "--registry" "https://registry.npmmirror.com" "--cache" ".npm-cache" "--loglevel" "verbose"
+9 verbose logfile logs-max:10 dir:F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-20T15_40_54_720Z-
+10 verbose logfile F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-20T15_40_54_720Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 silly idealTree buildDeps
+14 silly fetch manifest @vitejs/plugin-react@latest
+15 silly packumentCache full:https://registry.npmmirror.com/@vitejs%2fplugin-react cache-miss
+16 http fetch GET 200 https://registry.npmmirror.com/@vitejs%2fplugin-react 3092ms (cache revalidated)
+17 silly packumentCache full:https://registry.npmmirror.com/@vitejs%2fplugin-react set size:273371 disposed:false
+18 silly fetch manifest @rolldown/plugin-babel@^0.1.7 || ^0.2.0
+19 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fplugin-babel cache-miss
+20 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fplugin-babel 2515ms (cache revalidated)
+21 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fplugin-babel set size:43709 disposed:false
+22 silly fetch manifest @babel/core@^7.29.0 || ^8.0.0-rc.1
+23 silly packumentCache full:https://registry.npmmirror.com/@babel%2fcore cache-miss
+24 http fetch GET 200 https://registry.npmmirror.com/@babel%2fcore 3978ms (cache revalidated)
+25 silly packumentCache full:https://registry.npmmirror.com/@babel%2fcore set size:716390 disposed:false
+26 silly fetch manifest @babel/plugin-transform-runtime@^7.29.0 || ^8.0.0-rc.1
+27 silly packumentCache full:https://registry.npmmirror.com/@babel%2fplugin-transform-runtime cache-miss
+28 http fetch GET 200 https://registry.npmmirror.com/@babel%2fplugin-transform-runtime 3072ms (cache revalidated)
+29 silly packumentCache full:https://registry.npmmirror.com/@babel%2fplugin-transform-runtime set size:420358 disposed:false
+30 silly fetch manifest @babel/runtime@^7.27.0 || ^8.0.0-rc.1
+31 silly packumentCache full:https://registry.npmmirror.com/@babel%2fruntime cache-miss
+32 http fetch GET 200 https://registry.npmmirror.com/@babel%2fruntime 3935ms (cache revalidated)
+33 silly packumentCache full:https://registry.npmmirror.com/@babel%2fruntime set size:3403563 disposed:false
+34 silly fetch manifest rolldown@^1.0.0-rc.5
+35 silly packumentCache full:https://registry.npmmirror.com/rolldown cache-miss
+36 http fetch GET 200 https://registry.npmmirror.com/rolldown 3740ms (cache revalidated)
+37 silly packumentCache full:https://registry.npmmirror.com/rolldown set size:3814736 disposed:false
+38 silly fetch manifest vite@latest
+39 silly packumentCache full:https://registry.npmmirror.com/vite cache-miss
+40 http fetch GET 200 https://registry.npmmirror.com/vite 4532ms (cache revalidated)
+41 silly packumentCache full:https://registry.npmmirror.com/vite set size:38694014 disposed:false
+42 silly fetch manifest @types/node@^20.19.0 || >=22.12.0
+43 silly packumentCache full:https://registry.npmmirror.com/@types%2fnode cache-miss
+44 http fetch GET 200 https://registry.npmmirror.com/@types%2fnode 5437ms (cache revalidated)
+45 silly packumentCache full:https://registry.npmmirror.com/@types%2fnode set size:10302654 disposed:false
+46 silly fetch manifest @vitejs/devtools@^0.1.18
+47 silly packumentCache full:https://registry.npmmirror.com/@vitejs%2fdevtools cache-miss
+48 http fetch GET 200 https://registry.npmmirror.com/@vitejs%2fdevtools 4883ms (cache revalidated)
+49 silly packumentCache full:https://registry.npmmirror.com/@vitejs%2fdevtools set size:230547 disposed:false
+50 silly fetch manifest esbuild@^0.27.0 || ^0.28.0
+51 silly packumentCache full:https://registry.npmmirror.com/esbuild cache-miss
+52 http fetch GET 200 https://registry.npmmirror.com/esbuild 5126ms (cache revalidated)
+53 silly packumentCache full:https://registry.npmmirror.com/esbuild set size:1010140 disposed:false
+54 silly fetch manifest jiti@>=1.21.0
+55 silly packumentCache full:https://registry.npmmirror.com/jiti cache-miss
+56 http fetch GET 200 https://registry.npmmirror.com/jiti 2938ms (cache revalidated)
+57 silly packumentCache full:https://registry.npmmirror.com/jiti set size:349233 disposed:false
+58 silly fetch manifest less@^4.0.0
+59 silly packumentCache full:https://registry.npmmirror.com/less cache-miss
+60 http fetch GET 200 https://registry.npmmirror.com/less 1929ms (cache revalidated)
+61 silly packumentCache full:https://registry.npmmirror.com/less set size:440583 disposed:false
+62 silly fetch manifest sass@^1.70.0
+63 silly packumentCache full:https://registry.npmmirror.com/sass cache-miss
+64 http fetch GET 200 https://registry.npmmirror.com/sass 2799ms (cache revalidated)
+65 silly packumentCache full:https://registry.npmmirror.com/sass set size:605392 disposed:false
+66 silly fetch manifest sass-embedded@^1.70.0
+67 silly packumentCache full:https://registry.npmmirror.com/sass-embedded cache-miss
+68 http fetch GET 200 https://registry.npmmirror.com/sass-embedded 3255ms (cache revalidated)
+69 silly packumentCache full:https://registry.npmmirror.com/sass-embedded set size:431111 disposed:false
+70 silly fetch manifest stylus@>=0.54.8
+71 silly packumentCache full:https://registry.npmmirror.com/stylus cache-miss
+72 http fetch GET 200 https://registry.npmmirror.com/stylus 3320ms (cache revalidated)
+73 silly packumentCache full:https://registry.npmmirror.com/stylus set size:312391 disposed:false
+74 silly fetch manifest sugarss@^5.0.0
+75 silly packumentCache full:https://registry.npmmirror.com/sugarss cache-miss
+76 http fetch GET 200 https://registry.npmmirror.com/sugarss 3579ms (cache revalidated)
+77 silly packumentCache full:https://registry.npmmirror.com/sugarss set size:38248 disposed:false
+78 silly fetch manifest postcss@^8.3.3
+79 silly packumentCache full:https://registry.npmmirror.com/postcss cache-miss
+80 http fetch GET 200 https://registry.npmmirror.com/postcss 4207ms (cache revalidated)
+81 silly packumentCache full:https://registry.npmmirror.com/postcss set size:639981 disposed:false
+82 silly fetch manifest terser@^5.16.0
+83 silly packumentCache full:https://registry.npmmirror.com/terser cache-miss
+84 http fetch GET 200 https://registry.npmmirror.com/terser 3703ms (cache revalidated)
+85 silly packumentCache full:https://registry.npmmirror.com/terser set size:704380 disposed:false
+86 silly fetch manifest tsx@^4.8.1
+87 silly packumentCache full:https://registry.npmmirror.com/tsx cache-miss
+88 http fetch GET 200 https://registry.npmmirror.com/tsx 3971ms (cache revalidated)
+89 silly packumentCache full:https://registry.npmmirror.com/tsx set size:318921 disposed:false
+90 silly fetch manifest yaml@^2.4.2
+91 silly packumentCache full:https://registry.npmmirror.com/yaml cache-miss
+92 http fetch GET 200 https://registry.npmmirror.com/yaml 5103ms (cache revalidated)
+93 silly packumentCache full:https://registry.npmmirror.com/yaml set size:344021 disposed:false
+94 silly fetch manifest babel-plugin-react-compiler@^1.0.0
+95 silly packumentCache full:https://registry.npmmirror.com/babel-plugin-react-compiler cache-miss
+96 http fetch GET 200 https://registry.npmmirror.com/babel-plugin-react-compiler 4152ms (cache revalidated)
+97 silly packumentCache full:https://registry.npmmirror.com/babel-plugin-react-compiler set size:1411987 disposed:false
+98 silly fetch manifest react@latest
+99 silly packumentCache full:https://registry.npmmirror.com/react cache-miss
+100 http cache https://registry.npmmirror.com/react 2461ms (cache hit)
+101 silly packumentCache full:https://registry.npmmirror.com/react set size:6465671 disposed:false
+102 silly fetch manifest react-dom@latest
+103 silly packumentCache full:https://registry.npmmirror.com/react-dom cache-miss
+104 http cache https://registry.npmmirror.com/react-dom 3404ms (cache hit)
+105 silly packumentCache full:https://registry.npmmirror.com/react-dom set size:8705348 disposed:false
+106 silly fetch manifest lucide-react@latest
+107 silly packumentCache full:https://registry.npmmirror.com/lucide-react cache-miss
+108 http cache https://registry.npmmirror.com/lucide-react 2806ms (cache hit)
+109 silly packumentCache full:https://registry.npmmirror.com/lucide-react set size:2341685 disposed:false
+110 silly placeDep ROOT @vitejs/plugin-react@6.0.2 REPLACE for: agentdogs-gui@0.1.0 want: latest
+111 silly placeDep ROOT vite@8.0.16 OK for: @vitejs/plugin-react@6.0.2 want: ^8.0.0
+112 silly placeDep ROOT lucide-react@1.21.0 REPLACE for: agentdogs-gui@0.1.0 want: latest
+113 silly placeDep ROOT react@19.2.7 OK for: lucide-react@1.21.0 want: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+114 silly placeDep ROOT react-dom@19.2.7 REPLACE for: agentdogs-gui@0.1.0 want: latest
+115 silly fetch manifest rolldown@1.0.3
+116 silly packumentCache full:https://registry.npmmirror.com/rolldown cache-miss
+117 silly fetch manifest fsevents@~2.3.3
+118 silly packumentCache full:https://registry.npmmirror.com/fsevents cache-miss
+119 http cache https://registry.npmmirror.com/rolldown 1560ms (cache hit)
+120 silly packumentCache full:https://registry.npmmirror.com/rolldown set size:3814736 disposed:false
+121 http cache https://registry.npmmirror.com/fsevents 2158ms (cache hit)
+122 silly packumentCache full:https://registry.npmmirror.com/fsevents set size:122258 disposed:false
+123 silly placeDep ROOT fsevents@2.3.3 OK for: vite@8.0.16 want: ~2.3.3
+124 silly placeDep node_modules/vite rolldown@1.0.3 OK for: vite@8.0.16 want: 1.0.3
+125 silly fetch manifest @rolldown/binding-darwin-x64@1.0.3
+126 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-darwin-x64 cache-miss
+127 silly fetch manifest @rolldown/binding-linux-x64-gnu@1.0.3
+128 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-x64-gnu cache-miss
+129 silly fetch manifest @rolldown/binding-linux-x64-musl@1.0.3
+130 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-x64-musl cache-miss
+131 silly fetch manifest @rolldown/binding-freebsd-x64@1.0.3
+132 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-freebsd-x64 cache-miss
+133 silly fetch manifest @rolldown/binding-linux-arm-gnueabihf@1.0.3
+134 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm-gnueabihf cache-miss
+135 silly fetch manifest @rolldown/binding-linux-arm64-gnu@1.0.3
+136 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm64-gnu cache-miss
+137 silly fetch manifest @rolldown/binding-darwin-arm64@1.0.3
+138 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-darwin-arm64 cache-miss
+139 silly fetch manifest @rolldown/binding-linux-arm64-musl@1.0.3
+140 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm64-musl cache-miss
+141 silly fetch manifest @rolldown/binding-openharmony-arm64@1.0.3
+142 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-openharmony-arm64 cache-miss
+143 silly fetch manifest @rolldown/binding-win32-arm64-msvc@1.0.3
+144 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-win32-arm64-msvc cache-miss
+145 silly fetch manifest @rolldown/binding-android-arm64@1.0.3
+146 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-android-arm64 cache-miss
+147 silly fetch manifest @rolldown/binding-wasm32-wasi@1.0.3
+148 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-wasm32-wasi cache-miss
+149 silly fetch manifest @rolldown/binding-linux-s390x-gnu@1.0.3
+150 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-s390x-gnu cache-miss
+151 silly fetch manifest @rolldown/binding-linux-ppc64-gnu@1.0.3
+152 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-ppc64-gnu cache-miss
+153 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-android-arm64 27363ms (cache revalidated)
+154 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-android-arm64 set size:166000 disposed:false
+155 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm-gnueabihf 27369ms (cache revalidated)
+156 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm-gnueabihf set size:1496723 disposed:false
+157 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-openharmony-arm64 27376ms (cache revalidated)
+158 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-openharmony-arm64 set size:125378 disposed:false
+159 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm64-gnu 27380ms (cache revalidated)
+160 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm64-gnu set size:1487196 disposed:false
+161 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm64-musl 27391ms (cache revalidated)
+162 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-arm64-musl set size:1491804 disposed:false
+163 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-freebsd-x64 27406ms (cache revalidated)
+164 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-freebsd-x64 set size:1111123 disposed:false
+165 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-linux-x64-musl 27422ms (cache revalidated)
+166 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-x64-musl set size:1480143 disposed:false
+167 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-darwin-x64 27699ms (cache revalidated)
+168 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-darwin-x64 set size:1450212 disposed:false
+169 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-linux-x64-gnu 27708ms (cache revalidated)
+170 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-x64-gnu set size:1475495 disposed:false
+171 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-win32-arm64-msvc 28373ms (cache revalidated)
+172 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-win32-arm64-msvc set size:1482235 disposed:false
+173 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-wasm32-wasi 28379ms (cache revalidated)
+174 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-wasm32-wasi set size:1434007 disposed:false
+175 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-linux-s390x-gnu 28460ms (cache revalidated)
+176 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-s390x-gnu set size:46331 disposed:false
+177 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-linux-ppc64-gnu 28715ms (cache revalidated)
+178 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-linux-ppc64-gnu set size:46347 disposed:false
+179 http fetch GET 200 https://registry.npmmirror.com/@rolldown%2fbinding-darwin-arm64 29093ms (cache revalidated)
+180 silly packumentCache full:https://registry.npmmirror.com/@rolldown%2fbinding-darwin-arm64 set size:1461879 disposed:false
+181 silly placeDep ROOT @rolldown/binding-android-arm64@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+182 silly placeDep ROOT @rolldown/binding-darwin-arm64@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+183 silly placeDep ROOT @rolldown/binding-darwin-x64@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+184 silly placeDep ROOT @rolldown/binding-freebsd-x64@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+185 silly placeDep ROOT @rolldown/binding-linux-arm-gnueabihf@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+186 silly placeDep ROOT @rolldown/binding-linux-arm64-gnu@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+187 silly placeDep ROOT @rolldown/binding-linux-arm64-musl@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+188 silly placeDep ROOT @rolldown/binding-linux-ppc64-gnu@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+189 silly placeDep ROOT @rolldown/binding-linux-s390x-gnu@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+190 silly placeDep ROOT @rolldown/binding-linux-x64-gnu@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+191 silly placeDep ROOT @rolldown/binding-linux-x64-musl@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+192 silly placeDep ROOT @rolldown/binding-openharmony-arm64@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+193 silly placeDep ROOT @rolldown/binding-wasm32-wasi@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+194 silly placeDep ROOT @rolldown/binding-win32-arm64-msvc@1.0.3 OK for: rolldown@1.0.3 want: 1.0.3
+195 silly fetch manifest @napi-rs/wasm-runtime@^1.1.4
+196 silly packumentCache full:https://registry.npmmirror.com/@napi-rs%2fwasm-runtime cache-miss
+197 silly fetch manifest @emnapi/core@1.10.0
+198 silly packumentCache full:https://registry.npmmirror.com/@emnapi%2fcore cache-miss
+199 silly fetch manifest @emnapi/runtime@1.10.0
+200 silly packumentCache full:https://registry.npmmirror.com/@emnapi%2fruntime cache-miss
+201 http fetch GET 200 https://registry.npmmirror.com/@emnapi%2fruntime 8267ms (cache revalidated)
+202 silly packumentCache full:https://registry.npmmirror.com/@emnapi%2fruntime set size:122475 disposed:false
+203 http fetch GET 200 https://registry.npmmirror.com/@napi-rs%2fwasm-runtime 8935ms (cache revalidated)
+204 silly packumentCache full:https://registry.npmmirror.com/@napi-rs%2fwasm-runtime set size:77881 disposed:false
+205 http fetch GET 200 https://registry.npmmirror.com/@emnapi%2fcore 10412ms (cache revalidated)
+206 silly packumentCache full:https://registry.npmmirror.com/@emnapi%2fcore set size:120859 disposed:false
+207 silly placeDep ROOT @emnapi/core@1.10.0 OK for: @rolldown/binding-wasm32-wasi@1.0.3 want: 1.10.0
+208 silly placeDep ROOT @emnapi/runtime@1.10.0 OK for: @rolldown/binding-wasm32-wasi@1.0.3 want: 1.10.0
+209 silly placeDep ROOT @napi-rs/wasm-runtime@1.1.5 OK for: @rolldown/binding-wasm32-wasi@1.0.3 want: ^1.1.4
+210 silly fetch manifest @emnapi/wasi-threads@1.2.1
+211 silly packumentCache full:https://registry.npmmirror.com/@emnapi%2fwasi-threads cache-miss
+212 silly fetch manifest tslib@^2.4.0
+213 silly packumentCache full:https://registry.npmmirror.com/tslib cache-miss
+214 silly fetch manifest tslib@^2.4.0
+215 silly packumentCache full:https://registry.npmmirror.com/tslib cache-miss
+216 silly fetch manifest @tybys/wasm-util@^0.10.2
+217 silly packumentCache full:https://registry.npmmirror.com/@tybys%2fwasm-util cache-miss
+218 http fetch GET 200 https://registry.npmmirror.com/@emnapi%2fwasi-threads 10684ms (cache revalidated)
+219 silly packumentCache full:https://registry.npmmirror.com/@emnapi%2fwasi-threads set size:29902 disposed:false
+220 http fetch GET 200 https://registry.npmmirror.com/@tybys%2fwasm-util 12970ms (cache revalidated)
+221 silly packumentCache full:https://registry.npmmirror.com/@tybys%2fwasm-util set size:59549 disposed:false
+222 http fetch GET 200 https://registry.npmmirror.com/tslib 12973ms (cache revalidated)
+223 silly packumentCache full:https://registry.npmmirror.com/tslib set size:113423 disposed:false
+224 http fetch GET 200 https://registry.npmmirror.com/tslib 13228ms (cache revalidated)
+225 silly packumentCache full:https://registry.npmmirror.com/tslib set size:113423 disposed:false
+226 silly packumentCache full:https://registry.npmmirror.com/tslib dispose
+227 silly placeDep ROOT @emnapi/wasi-threads@1.2.1 OK for: @emnapi/core@1.10.0 want: 1.2.1
+228 silly placeDep ROOT tslib@2.8.1 OK for: @emnapi/core@1.10.0 want: ^2.4.0
+229 silly placeDep ROOT @tybys/wasm-util@0.10.2 OK for: @napi-rs/wasm-runtime@1.1.5 want: ^0.10.2
+230 silly reify mark retired [ 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\lucide-react' ]
+231 silly reify mark retired [ 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\react' ]
+232 silly reify mark retired [ 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\react-dom' ]
+233 silly reify mark retired [ 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\rolldown' ]
+234 silly reify mark retired [ 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\vite' ]
+235 silly reify mark retired [
+235 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\@vitejs\\plugin-react'
+235 silly reify ]
+236 silly reify moves {
+236 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\lucide-react': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.lucide-react-urxqj9w6',
+236 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\react': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.react-vNbZjvBe',
+236 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\react-dom': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.react-dom-DPdLcOmP',
+236 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\rolldown': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.rolldown-9601tPIu',
+236 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\vite': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\.vite-oY1i31Qo',
+236 silly reify   'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\@vitejs\\plugin-react': 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\@vitejs\\.plugin-react-z5XiQdOM'
+236 silly reify }
+237 silly audit bulk request {
+237 silly audit   'detect-libc': [ '2.1.2' ],
+237 silly audit   'lightningcss-win32-x64-msvc': [ '1.32.0' ],
+237 silly audit   fdir: [ '6.5.0' ],
+237 silly audit   lightningcss: [ '1.32.0' ],
+237 silly audit   picocolors: [ '1.1.1' ],
+237 silly audit   picomatch: [ '4.0.4' ],
+237 silly audit   tinyglobby: [ '0.2.17' ],
+237 silly audit   postcss: [ '8.5.15' ],
+237 silly audit   'source-map-js': [ '1.2.1' ],
+237 silly audit   scheduler: [ '0.27.0' ],
+237 silly audit   '@oxc-project/types': [ '0.133.0' ],
+237 silly audit   '@rolldown/binding-win32-x64-msvc': [ '1.0.3' ],
+237 silly audit   '@rolldown/pluginutils': [ '1.0.1' ],
+237 silly audit   '@vitejs/plugin-react': [ '6.0.2' ],
+237 silly audit   vite: [ '8.0.16' ],
+237 silly audit   'lucide-react': [ '1.21.0' ],
+237 silly audit   react: [ '19.2.7' ],
+237 silly audit   'react-dom': [ '19.2.7' ],
+237 silly audit   fsevents: [ '2.3.3' ],
+237 silly audit   rolldown: [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-android-arm64': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-darwin-arm64': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-darwin-x64': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-freebsd-x64': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-linux-arm-gnueabihf': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-linux-arm64-gnu': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-linux-arm64-musl': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-linux-ppc64-gnu': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-linux-s390x-gnu': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-linux-x64-gnu': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-linux-x64-musl': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-openharmony-arm64': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-wasm32-wasi': [ '1.0.3' ],
+237 silly audit   '@rolldown/binding-win32-arm64-msvc': [ '1.0.3' ],
+237 silly audit   '@emnapi/core': [ '1.10.0' ],
+237 silly audit   '@emnapi/runtime': [ '1.10.0' ],
+237 silly audit   '@napi-rs/wasm-runtime': [ '1.1.5' ],
+237 silly audit   '@emnapi/wasi-threads': [ '1.2.1' ],
+237 silly audit   tslib: [ '2.8.1' ],
+237 silly audit   '@tybys/wasm-util': [ '0.10.2' ]
+237 silly audit }
+238 http cache react@https://registry.npmmirror.com/react/-/react-19.2.7.tgz 0ms (cache hit)
+239 http cache @vitejs/plugin-react@https://registry.npmmirror.com/@vitejs/plugin-react/-/plugin-react-6.0.2.tgz 0ms (cache hit)
+240 http cache lucide-react@https://registry.npmmirror.com/lucide-react/-/lucide-react-1.21.0.tgz 0ms (cache hit)
+241 http cache rolldown@https://registry.npmmirror.com/rolldown/-/rolldown-1.0.3.tgz 0ms (cache hit)
+242 http cache vite@https://registry.npmmirror.com/vite/-/vite-8.0.16.tgz 0ms (cache hit)
+243 silly tarball no local data for lucide-react@https://registry.npmmirror.com/lucide-react/-/lucide-react-1.21.0.tgz. Extracting by manifest.
+244 http cache react-dom@https://registry.npmmirror.com/react-dom/-/react-dom-19.2.7.tgz 0ms (cache hit)
+245 http fetch POST 404 https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk 77ms
+246 verbose audit error HttpErrorGeneral: 404 Not Found - POST https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk - [NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet
+246 verbose audit error     at D:\a-software\node\node_modules\npm\node_modules\npm-registry-fetch\lib\check-response.js:103:15
+246 verbose audit error     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+246 verbose audit error     at async #getReport (D:\a-software\node\node_modules\npm\node_modules\@npmcli\arborist\lib\audit-report.js:275:19)
+246 verbose audit error     at async AuditReport.run (D:\a-software\node\node_modules\npm\node_modules\@npmcli\arborist\lib\audit-report.js:100:19) {
+246 verbose audit error   headers: [Object: null prototype] {
+246 verbose audit error     server: [ 'Tengine' ],
+246 verbose audit error     date: [ 'Sat, 20 Jun 2026 15:43:22 GMT' ],
+246 verbose audit error     'content-type': [ 'application/json' ],
+246 verbose audit error     'transfer-encoding': [ 'chunked' ],
+246 verbose audit error     connection: [ 'keep-alive' ],
+246 verbose audit error     'strict-transport-security': [ 'max-age=5184000' ],
+246 verbose audit error     via: [ 'kunlun2.cn7971[,404666]' ],
+246 verbose audit error     'timing-allow-origin': [ '*' ],
+246 verbose audit error     eagleid: [ '7ae4d61617819702023057201e' ],
+246 verbose audit error     'x-fetch-attempts': [ '1' ]
+246 verbose audit error   },
+246 verbose audit error   statusCode: 404,
+246 verbose audit error   code: 'E404',
+246 verbose audit error   method: 'POST',
+246 verbose audit error   uri: 'https://registry.npmmirror.com/-/npm/v1/security/advisories/bulk',
+246 verbose audit error   body: {
+246 verbose audit error     error: '[NOT_IMPLEMENTED] /-/npm/v1/security/* not implemented yet'
+246 verbose audit error   },
+246 verbose audit error   pkgid: undefined
+246 verbose audit error }
+247 silly audit error [object Object]
+248 silly audit report null
+249 http fetch GET 200 https://cdn.npmmirror.com/packages/lucide-react/1.21.0/lucide-react-1.21.0.tgz 34295893ms (cache miss)
+250 warn cleanup Failed to remove some directories [
+250 warn cleanup   [
+250 warn cleanup     'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\lucide-react',
+250 warn cleanup     [Error: EPERM: operation not permitted, rmdir 'F:\agent\new\agentDogs\GUI\node_modules\lucide-react\dist'] {
+250 warn cleanup       errno: -4048,
+250 warn cleanup       code: 'EPERM',
+250 warn cleanup       syscall: 'rmdir',
+250 warn cleanup       path: 'F:\\agent\\new\\agentDogs\\GUI\\node_modules\\lucide-react\\dist'
+250 warn cleanup     }
+250 warn cleanup   ]
+250 warn cleanup ]
+251 verbose stack Error: EBUSY: resource busy or locked, unlink 'F:\agent\new\agentDogs\GUI\.npm-cache\_cacache\tmp\81e5762a'
+252 error code EBUSY
+253 error syscall unlink
+254 error path F:\agent\new\agentDogs\GUI\.npm-cache\_cacache\tmp\81e5762a
+255 error errno -4082
+256 error EBUSY: resource busy or locked, unlink 'F:\agent\new\agentDogs\GUI\.npm-cache\_cacache\tmp\81e5762a'
+257 silly unfinished npm timer reify 1781970055789
+258 silly unfinished npm timer reify:unpack 1781970202705
+259 silly unfinished npm timer reifyNode:node_modules/lucide-react 1781970202706
+260 verbose cwd F:\agent\new\agentDogs\GUI
+261 verbose os Windows_NT 10.0.26200
+262 verbose node v24.14.0
+263 verbose npm  v11.9.0
+264 verbose exit -4082
+265 verbose code -4082
+266 error A complete log of this run can be found in: F:\agent\new\agentDogs\GUI\.npm-cache\_logs\2026-06-20T15_40_54_720Z-debug-0.log
