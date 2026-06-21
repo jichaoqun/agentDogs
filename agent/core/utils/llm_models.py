@@ -284,12 +284,17 @@ class OllamaProvider(_LangChainProvider):
         options: GenerationOptions,
     ) -> AIMessage:
         try:
-            response = self.client(model).invoke(
-                messages,
+            call_kwargs = dict(options.extra)
+            ollama_options = dict(call_kwargs.pop("options", {}))
+            ollama_options.update(
                 temperature=self._temperature(options),
                 num_predict=self._max_tokens(options),
+            )
+            response = self.client(model).invoke(
+                messages,
+                options=ollama_options,
                 reasoning=options.thinking_enabled,
-                **options.extra,
+                **call_kwargs,
             )
             return _normalize_message(response)
         except LLMError:

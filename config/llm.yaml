@@ -1,8 +1,8 @@
 version: 1
 system_prompt: 你是一个专业、可靠的本地智能助手。请准确、简洁地回答用户问题。
 default_model:
-  provider: builtin
-  model: builtin
+  provider: ollama
+  model: qwen3.5:4b-q4_K_M
 history:
   max_messages: 40
 providers:
@@ -14,7 +14,7 @@ providers:
     models: [gpt-4.1-mini]
     timeout: 60
     temperature: 0.7
-    max_tokens: 2048
+    max_tokens: 256000
     request_body: {}
   ollama:
     enabled: true

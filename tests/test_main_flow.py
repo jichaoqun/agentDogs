@@ -17,6 +17,7 @@ from agent.core.utils.llm_models import (
     ModelManager,
     ModelProvider,
     ModelSelection,
+    OllamaProvider,
 )
 
 
@@ -57,6 +58,28 @@ def make_manager(*, provider="api", reply="answer", fail=False):
 
 
 class MainFlowTests(unittest.TestCase):
+    def test_ollama_generation_settings_are_passed_in_options(self):
+        class RecordingClient:
+            def __init__(self):
+                self.kwargs = None
+
+            def invoke(self, messages, **kwargs):
+                self.kwargs = kwargs
+                return AIMessage(content="ok")
+
+        provider = OllamaProvider(ProviderConfig(temperature=0.6, max_tokens=900))
+        client = RecordingClient()
+        provider._clients["qwen"] = client
+
+        provider.invoke(
+            [],
+            "qwen",
+            GenerationOptions(temperature=0.3, max_tokens=256, thinking_enabled=True),
+        )
+
+        self.assertEqual(client.kwargs["options"], {"temperature": 0.3, "num_predict": 256})
+        self.assertTrue(client.kwargs["reasoning"])
+
     def test_manager_invokes_only_the_explicitly_selected_provider(self):
         manager = ModelManager(make_config())
         api = FakeProvider(ProviderConfig(), reply="api answer")
