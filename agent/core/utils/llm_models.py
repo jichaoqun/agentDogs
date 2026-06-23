@@ -310,8 +310,7 @@ class BuiltinProvider(ModelProvider):
         self._lock = RLock()
 
     def list_models(self) -> list[ModelInfo]:
-        display = Path(self.config.model).stem if self.config.model else "内置模型"
-        return [ModelInfo(self.provider_id, self.model_id, display, supports_thinking=True)]
+        return [ModelInfo(self.provider_id, self.model_id, "内置模型", supports_thinking=True)]
 
     def _get_client(self) -> BaseChatModel:
         if self._client is not None:
@@ -412,7 +411,10 @@ class ModelManager:
             return self._provider(provider).list_models()
         models: list[ModelInfo] = []
         for item in self.providers.values():
-            models.extend(item.list_models())
+            try:
+                models.extend(item.list_models())
+            except LLMError:
+                continue
         return models
 
     def chat(

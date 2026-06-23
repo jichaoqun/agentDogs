@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage
 from agent.api.app import create_app
 from agent.api.sessions import SessionManager
 from agent.core.utils.llm_config import AppConfig, ProviderConfig
-from agent.core.utils.llm_models import ModelResponse
+from agent.core.utils.llm_models import ModelInvocationError, ModelResponse
 
 
 class FakeAgent:
@@ -80,6 +80,87 @@ class ApiTests(unittest.TestCase):
         self.assertEqual((response.json()["provider"], response.json()["model"]), ("ollama", "qwen3:8b"))
         self.assertTrue(response.json()["thinking_enabled"])
         self.assertEqual(response.json()["reasoning"], "测试思考")
+
+    def test_models_list_uses_configured_api_models_and_builtin_label(self):
+        config = AppConfig(
+            "system",
+            10,
+            {
+                "api": ProviderConfig(
+                    enabled=True,
+                    model="gpt-4.1-mini",
+                    extra={"models": ["gpt-4.1-mini", "gpt-4.1"]},
+                ),
+                "ollama": ProviderConfig(enabled=False),
+                "builtin": ProviderConfig(enabled=True, model="model.gguf"),
+            },
+            Path("test.yaml"),
+            default_provider="builtin",
+            default_model="builtin",
+        )
+        client = TestClient(create_app(config, SessionManager(config, agent_factory=FakeAgent)))
+
+        response = client.get("/api/v1/models")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn(
+            {
+                "provider": "api",
+                "model": "gpt-4.1-mini",
+                "display_name": "gpt-4.1-mini",
+                "supports_thinking": False,
+            },
+            payload,
+        )
+        self.assertIn(
+            {
+                "provider": "api",
+                "model": "gpt-4.1",
+                "display_name": "gpt-4.1",
+                "supports_thinking": False,
+            },
+            payload,
+        )
+        self.assertIn(
+            {
+                "provider": "builtin",
+                "model": "builtin",
+                "display_name": "内置模型",
+                "supports_thinking": True,
+            },
+            payload,
+        )
+
+    def test_models_list_ignores_failed_ollama_scan(self):
+        config = AppConfig(
+            "system",
+            10,
+            {
+                "api": ProviderConfig(enabled=True, model="gpt-4.1-mini"),
+                "ollama": ProviderConfig(enabled=True),
+                "builtin": ProviderConfig(enabled=True, model="model.gguf"),
+            },
+            Path("test.yaml"),
+            default_provider="builtin",
+            default_model="builtin",
+        )
+        manager = SessionManager(config, agent_factory=FakeAgent)
+
+        class BrokenOllama:
+            def list_models(self):
+                raise ModelInvocationError("offline")
+
+        manager.models.providers["ollama"] = BrokenOllama()
+        client = TestClient(create_app(config, manager))
+
+        response = client.get("/api/v1/models")
+
+        self.assertEqual(response.status_code, 200)
+        providers = {item["provider"] for item in response.json()}
+        self.assertIn("api", providers)
+        self.assertIn("builtin", providers)
+        self.assertNotIn("ollama", providers)
 
 
 if __name__ == "__main__":

@@ -27,8 +27,22 @@ export const api = {
   session: (id) => request(`/sessions/${id}`),
   createSession: () => request('/sessions', { method: 'POST', body: JSON.stringify({}) }),
   deleteSession: (id) => request(`/sessions/${id}`, { method: 'DELETE' }),
-  send: (id, message, thinkingEnabled = false) => request(`/sessions/${id}/messages`, {
-    method: 'POST',
-    body: JSON.stringify({ message, thinking_enabled: thinkingEnabled }),
-  }),
+  send: (id, message, options = {}) => {
+    const payload = {
+      message,
+      thinking_enabled: Boolean(options.thinkingEnabled),
+    }
+    if (options.provider) payload.provider = options.provider
+    if (options.model) payload.model = options.model
+    if (options.temperature !== '' && options.temperature !== null && options.temperature !== undefined) {
+      payload.temperature = Number(options.temperature)
+    }
+    if (options.maxTokens !== '' && options.maxTokens !== null && options.maxTokens !== undefined) {
+      payload.max_tokens = Number(options.maxTokens)
+    }
+    return request(`/sessions/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
 }

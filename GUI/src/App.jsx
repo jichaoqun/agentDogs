@@ -1,9 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Bot, ChevronLeft, CirclePlus, Menu, MessageSquareText,
-  Brain, PanelLeftClose, Send, Settings2, Sparkles, Trash2, UserRound,
+  Bot, Brain, ChevronLeft, CirclePlus, Menu, MessageSquareText,
+  PanelLeftClose, Send, Settings2, Sparkles, Trash2, UserRound,
 } from 'lucide-react'
 import { api } from './api.js'
+
+const PROVIDER_GROUPS = [
+  { id: 'api', title: 'API 模型' },
+  { id: 'ollama', title: 'Ollama' },
+  { id: 'builtin', title: '内置模型' },
+]
+
+function modelKey(model) {
+  return model ? `${model.provider}:${model.model}` : ''
+}
+
+function pickDefaultModelKey(models, status) {
+  if (!models.length) return ''
+  const defaultKey = `${status?.default_provider || ''}:${status?.default_model || ''}`
+  return models.some((item) => modelKey(item) === defaultKey)
+    ? defaultKey
+    : modelKey(models[0])
+}
 
 function Welcome() {
   return (
@@ -42,6 +60,9 @@ export default function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [status, setStatus] = useState(null)
+  const [models, setModels] = useState([])
+  const [selectedModelKey, setSelectedModelKey] = useState('')
+  const [temperature, setTemperature] = useState('0.7')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [sidebar, setSidebar] = useState(true)
@@ -49,9 +70,11 @@ export default function App() {
   const bottomRef = useRef(null)
 
   useEffect(() => {
-    Promise.all([api.sessions(), api.status()])
-      .then(async ([items, backendStatus]) => {
+    Promise.all([api.sessions(), api.status(), api.models()])
+      .then(async ([items, backendStatus, availableModels]) => {
         setStatus(backendStatus)
+        setModels(availableModels)
+        setSelectedModelKey((current) => current || pickDefaultModelKey(availableModels, backendStatus))
         if (items.length) {
           setSessions(items)
           await openSession(items[0].id)
@@ -63,6 +86,14 @@ export default function App() {
   }, [])
 
   useEffect(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages, busy])
+
+  const selectedModel = models.find((item) => modelKey(item) === selectedModelKey) || null
+
+  useEffect(() => {
+    if (selectedModel && !selectedModel.supports_thinking && thinkingEnabled) {
+      setThinkingEnabled(false)
+    }
+  }, [selectedModel, thinkingEnabled])
 
   async function refreshSessions() {
     setSessions(await api.sessions())
@@ -100,15 +131,23 @@ export default function App() {
     event.preventDefault()
     const text = input.trim()
     if (!text || busy || !activeId) return
+
+    const modelForRequest = selectedModel
+    const thinkingForRequest = Boolean(modelForRequest?.supports_thinking && thinkingEnabled)
     setInput('')
     setError('')
     setMessages((current) => [...current, { role: 'user', content: text }])
     setBusy(true)
     try {
-      const result = await api.send(activeId, text, thinkingEnabled)
+      const result = await api.send(activeId, text, {
+        provider: modelForRequest?.provider,
+        model: modelForRequest?.model,
+        temperature,
+        thinkingEnabled: thinkingForRequest,
+      })
       setMessages((current) => [...current, {
         ...result.message,
-        backend: result.backend,
+        backend: `${result.provider}/${result.model}`,
         reasoning: result.reasoning,
         thinkingEnabled: result.thinking_enabled,
       }])
@@ -116,7 +155,7 @@ export default function App() {
     } catch (err) {
       setError(err.message)
       setMessages((current) => current.slice(0, -1))
-      setInput(text)
+      setInput((current) => (current.length ? current : text))
     } finally {
       setBusy(false)
     }
@@ -124,12 +163,18 @@ export default function App() {
 
   function onKeyDown(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
+      if (busy) return
       event.preventDefault()
       event.currentTarget.form?.requestSubmit()
     }
   }
 
   const enabled = status?.backends.filter((item) => item.enabled) || []
+  const groupedModels = PROVIDER_GROUPS.map((group) => ({
+    ...group,
+    models: models.filter((item) => item.provider === group.id),
+  }))
+
   return (
     <div className={`app-shell ${sidebar ? '' : 'sidebar-closed'}`}>
       <aside className="sidebar">
@@ -151,7 +196,7 @@ export default function App() {
         <div className="sidebar-footer">
           <div className="model-status">
             <span className={`status-dot ${enabled.length ? 'online' : ''}`} />
-            <div><strong>{enabled.length ? '模型已就绪' : '模型未配置'}</strong><small>{enabled.map((item) => item.name).join(' · ') || '请检查设置'}</small></div>
+            <div><strong>{enabled.length ? '模型已就绪' : '模型未配置'}</strong><small>{models.length ? `${models.length} 个可用模型` : enabled.map((item) => item.name).join(' · ') || '请检查设置'}</small></div>
           </div>
           <button className="settings-button"><Settings2 size={18} />设置<span>即将开放</span></button>
         </div>
@@ -172,21 +217,56 @@ export default function App() {
         </section>
         <div className="composer-wrap">
           {error && <div className="error-banner">{error}</div>}
-          <div className="composer-options">
-            <label className={`thinking-toggle ${thinkingEnabled ? 'active' : ''}`}>
-              <input
-                type="checkbox"
-                checked={thinkingEnabled}
-                onChange={(event) => setThinkingEnabled(event.target.checked)}
-                disabled={busy}
-              />
-              <Brain size={15} />
-              深度思考
-            </label>
-          </div>
           <form className="composer" onSubmit={submit}>
-            <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onKeyDown} placeholder="给 Agent Dogs 发送消息…" rows="1" disabled={busy} />
-            <button type="submit" disabled={!input.trim() || busy} aria-label="发送"><Send size={19} /></button>
+            <div className="composer-main">
+              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onKeyDown} placeholder="给 Agent Dogs 发送消息" rows="1" />
+              <button type="submit" disabled={!input.trim() || busy} aria-label="发送"><Send size={19} /></button>
+            </div>
+            <div className="composer-toolbar">
+              <select
+                className="model-select"
+                value={selectedModelKey}
+                onChange={(event) => setSelectedModelKey(event.target.value)}
+                disabled={!models.length}
+                aria-label="选择模型"
+              >
+                {!models.length && <option value="">暂无可用模型</option>}
+                {groupedModels.map((group) => (
+                  group.models.length ? (
+                    <optgroup key={group.id} label={group.title}>
+                      {group.models.map((model) => (
+                        <option key={modelKey(model)} value={modelKey(model)}>
+                          {model.display_name || model.model}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null
+                ))}
+              </select>
+              <div className="composer-controls">
+                <label className="temperature-control">
+                  <span>温度 {Number(temperature).toFixed(1)}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    value={temperature}
+                    onChange={(event) => setTemperature(event.target.value)}
+                  />
+                </label>
+                <label className={`thinking-toggle ${thinkingEnabled ? 'active' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={thinkingEnabled}
+                    onChange={(event) => setThinkingEnabled(event.target.checked)}
+                    disabled={!selectedModel?.supports_thinking}
+                  />
+                  <Brain size={15} />
+                  深度思考
+                </label>
+              </div>
+            </div>
           </form>
           <p className="composer-note">Enter 发送 · Shift + Enter 换行 · 模型输出可能存在错误，请核对重要信息</p>
         </div>
