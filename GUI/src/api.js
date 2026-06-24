@@ -1,9 +1,19 @@
 const API_ROOT = import.meta.env.VITE_API_ROOT || '/api/v1'
 
+function fileUrl(path, route = 'raw') {
+  const query = new URLSearchParams({ path: path || '' })
+  return `${API_ROOT}/files/${route}?${query.toString()}`
+}
+
 async function request(path, options = {}) {
+  const bodyIsForm = options.body instanceof FormData
+  const { headers: optionHeaders, ...fetchOptions } = options
+  const headers = bodyIsForm
+    ? { ...optionHeaders }
+    : { 'Content-Type': 'application/json', ...optionHeaders }
   const response = await fetch(`${API_ROOT}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
+    ...fetchOptions,
+    headers,
   })
   if (!response.ok) {
     let detail = `请求失败 (${response.status})`
@@ -27,6 +37,32 @@ export const api = {
   session: (id) => request(`/sessions/${id}`),
   createSession: () => request('/sessions', { method: 'POST', body: JSON.stringify({}) }),
   deleteSession: (id) => request(`/sessions/${id}`, { method: 'DELETE' }),
+  fileTree: () => request('/files/tree'),
+  fileContent: (path) => request(`/files/content?${new URLSearchParams({ path }).toString()}`),
+  saveFileContent: (path, content) => request('/files/content', {
+    method: 'PUT',
+    body: JSON.stringify({ path, content }),
+  }),
+  createFileItem: (path, name, type) => request('/files', {
+    method: 'POST',
+    body: JSON.stringify({ path, name, type }),
+  }),
+  renameFileItem: (path, name) => request('/files', {
+    method: 'PATCH',
+    body: JSON.stringify({ path, name }),
+  }),
+  deleteFileItem: (path) => request(`/files?${new URLSearchParams({ path }).toString()}`, { method: 'DELETE' }),
+  uploadFile: (path, file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request(`/files/upload?${new URLSearchParams({ path: path || '' }).toString()}`, {
+      method: 'POST',
+      headers: {},
+      body: form,
+    })
+  },
+  rawFileUrl: (path) => fileUrl(path, 'raw'),
+  downloadFileUrl: (path) => fileUrl(path, 'download'),
   send: (id, message, options = {}) => {
     const payload = {
       message,

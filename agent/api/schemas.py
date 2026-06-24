@@ -65,3 +65,38 @@ class ModelInfoOut(BaseModel):
     model: str
     display_name: str
     supports_thinking: bool
+
+
+class FileNodeOut(BaseModel):
+    path: str
+    name: str
+    type: str
+    size: int
+    modified_at: datetime
+    mime_type: str
+    editable: bool
+    children: list["FileNodeOut"] = Field(default_factory=list)
+
+
+class FileContentOut(BaseModel):
+    path: str
+    name: str
+    content: str
+    editable: bool
+    mime_type: str
+
+
+class FileCreate(BaseModel):
+    path: str = ""
+    name: str = Field(min_length=1, max_length=255)
+    type: str = Field(pattern="^(file|directory)$")
+
+
+class FileUpdate(BaseModel):
+    path: str
+    name: str = Field(min_length=1, max_length=255)
+
+
+class FileSave(BaseModel):
+    path: str
+    content: str

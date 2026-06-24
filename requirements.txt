@@ -5,6 +5,7 @@ langchain-openai>=1.1,<2
 langchain-ollama>=1.0,<2
 langchain-community>=0.4,<1
 fastapi>=0.115,<1
+python-multipart>=0.0.20,<1
 uvicorn[standard]>=0.34,<1
 # Only required by the built-in MiniCPM GGUF fallback.
 llama-cpp-python>=0.3.16,<1
