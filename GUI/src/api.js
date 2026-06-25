@@ -19,9 +19,13 @@ async function request(path, options = {}) {
     let detail = `请求失败 (${response.status})`
     try {
       const payload = await response.json()
-      detail = typeof payload.detail === 'string'
-        ? payload.detail
-        : payload.detail?.message || detail
+      if (typeof payload.detail === 'string') {
+        detail = payload.detail
+      } else if (payload.detail?.message && payload.detail?.reason) {
+        detail = `${payload.detail.message}：${payload.detail.reason}`
+      } else {
+        detail = payload.detail?.message || payload.detail?.reason || detail
+      }
     } catch {
       // Keep the HTTP fallback message.
     }
@@ -33,6 +37,8 @@ async function request(path, options = {}) {
 export const api = {
   status: () => request('/status'),
   models: (provider) => request(`/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
+  tools: () => request('/tools'),
+  agents: () => request('/agents'),
   sessions: () => request('/sessions'),
   session: (id) => request(`/sessions/${id}`),
   createSession: () => request('/sessions', { method: 'POST', body: JSON.stringify({}) }),
@@ -81,4 +87,8 @@ export const api = {
       body: JSON.stringify(payload),
     })
   },
+  resume: (id, payload) => request(`/sessions/${id}/resume`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
 }

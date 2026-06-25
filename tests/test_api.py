@@ -3,15 +3,17 @@ from __future__ import annotations
 import tempfile
 import unittest
 import zipfile
+import importlib
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import AIMessage
 
-import agent.api.app as api_app
+api_app = importlib.import_module("agent.api.app")
 from agent.api.app import create_app
 from agent.api.sessions import SessionManager
+from agent.core.state import ClarificationQuestion, TaskAnalysis
 from agent.core.utils.llm_config import AppConfig, ProviderConfig
 from agent.core.utils.llm_models import ModelInvocationError, ModelResponse
 
@@ -20,7 +22,7 @@ class FakeAgent:
     def __init__(self, config):
         self.history = InMemoryChatMessageHistory()
 
-    def chat(self, text, *, selection=None, options=None):
+    def chat(self, text, *, selection=None, options=None, thread_id=None):
         self.history.add_user_message(text)
         message = AIMessage(content=f"收到：{text}")
         self.history.add_message(message)
@@ -32,6 +34,121 @@ class FakeAgent:
             selection.model,
             reasoning=reasoning,
         )
+
+
+class ClarifyFakeAgent(FakeAgent):
+    def chat(self, text, *, selection=None, options=None, thread_id=None):
+        self.history.add_user_message(text)
+        clarification = {
+            "original_message": text,
+            "questions": [
+                {
+                    "id": "target",
+                    "question": "目标是什么？",
+                    "options": ["目标 A", "目标 B"],
+                    "allow_custom": True,
+                    "required": True,
+                }
+            ],
+        }
+        interrupt = {
+            "id": "interrupt-1",
+            "type": "clarification",
+            "message": "这个任务还需要补充信息",
+            "clarification": clarification,
+            "plan": None,
+        }
+        message = AIMessage(
+            content="这个任务还需要补充信息",
+            additional_kwargs={
+                "route": "clarify",
+                "complexity": "needs_info",
+                "status": "interrupted",
+                "clarification": clarification,
+                "interrupt": interrupt,
+            },
+        )
+        self.history.add_message(message)
+        question = ClarificationQuestion(
+            id="target",
+            question="目标是什么？",
+            options=["目标 A", "目标 B"],
+        )
+        self.last_state = {
+            "user_input": text,
+            "route": "clarify",
+            "task_analysis": TaskAnalysis(
+                intent=text,
+                complexity="needs_info",
+                missing_info=["目标是什么？"],
+                clarification_questions=[question],
+            ),
+            "clarification_questions": [question],
+            "plan_steps": [],
+            "status": "interrupted",
+            "interrupt": interrupt,
+        }
+        return ModelResponse(
+            message.content,
+            message,
+            selection.provider,
+            selection.model,
+        )
+
+
+class ResumeFakeAgent(ClarifyFakeAgent):
+    def __init__(self, config):
+        super().__init__(config)
+        self.pending = False
+
+    def has_pending_interrupt(self):
+        return self.pending
+
+    def chat(self, text, *, selection=None, options=None, thread_id=None):
+        self.pending = True
+        return super().chat(text, selection=selection, options=options, thread_id=thread_id)
+
+    def resume(self, interrupt_id, payload, *, thread_id=None):
+        if interrupt_id != "interrupt-1":
+            from agent.core.main_agent import AgentInterruptError
+
+            raise AgentInterruptError("bad interrupt")
+        self.pending = False
+        self.history.add_user_message("补充信息")
+        plan = {
+            "summary": "处理目标 A",
+            "steps": ["确认目标", "执行分析"],
+            "risks": ["第一阶段不执行"],
+            "requires_confirmation": True,
+        }
+        interrupt = {
+            "id": "interrupt-2",
+            "type": "plan_confirmation",
+            "message": "我已经整理出执行计划，请确认后再继续。",
+            "clarification": None,
+            "plan": plan,
+        }
+        message = AIMessage(
+            content="我已经整理出执行计划，请确认后再继续。",
+            additional_kwargs={
+                "route": "future_task",
+                "complexity": "needs_info",
+                "status": "interrupted",
+                "plan_steps": plan["steps"],
+                "plan_status": "pending",
+                "interrupt": interrupt,
+            },
+        )
+        self.history.add_message(message)
+        self.last_state = {
+            "route": "future_task",
+            "task_analysis": TaskAnalysis(intent="处理", complexity="needs_info"),
+            "status": "interrupted",
+            "plan_steps": plan["steps"],
+            "plan_status": "pending",
+            "interrupt": interrupt,
+        }
+        return ModelResponse(message.content, message, "builtin", "builtin")
 
 
 class ApiTests(unittest.TestCase):
@@ -83,6 +200,54 @@ class ApiTests(unittest.TestCase):
         self.assertEqual((response.json()["provider"], response.json()["model"]), ("ollama", "qwen3:8b"))
         self.assertTrue(response.json()["thinking_enabled"])
         self.assertEqual(response.json()["reasoning"], "测试思考")
+
+    def test_clarify_response_includes_structured_questions(self):
+        manager = SessionManager(self.config, agent_factory=ClarifyFakeAgent)
+        client = TestClient(create_app(self.config, manager))
+        created = client.post("/api/v1/sessions", json={}).json()
+
+        response = client.post(
+            f"/api/v1/sessions/{created['id']}/messages",
+            json={"message": "帮我处理这个文件"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["route"], "clarify")
+        self.assertEqual(payload["complexity"], "needs_info")
+        self.assertEqual(payload["clarification"]["original_message"], "帮我处理这个文件")
+        self.assertEqual(payload["clarification"]["questions"][0]["question"], "目标是什么？")
+        self.assertTrue(payload["clarification"]["questions"][0]["allow_custom"])
+        self.assertEqual(payload["message"]["route"], "clarify")
+        self.assertEqual(payload["status"], "interrupted")
+        self.assertEqual(payload["interrupt"]["type"], "clarification")
+        self.assertEqual(payload["interrupt"]["id"], "interrupt-1")
+
+    def test_resume_endpoint_continues_pending_interrupt(self):
+        manager = SessionManager(self.config, agent_factory=ResumeFakeAgent)
+        client = TestClient(create_app(self.config, manager))
+        created = client.post("/api/v1/sessions", json={}).json()
+        first = client.post(
+            f"/api/v1/sessions/{created['id']}/messages",
+            json={"message": "帮我处理这个文件"},
+        )
+        self.assertEqual(first.status_code, 200)
+
+        response = client.post(
+            f"/api/v1/sessions/{created['id']}/resume",
+            json={
+                "interrupt_id": "interrupt-1",
+                "type": "clarification",
+                "answers": {"target": "目标 A"},
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["route"], "future_task")
+        self.assertEqual(payload["status"], "interrupted")
+        self.assertEqual(payload["interrupt"]["type"], "plan_confirmation")
+        self.assertEqual(payload["plan_status"], "pending")
 
     def test_models_list_uses_configured_api_models_and_builtin_label(self):
         config = AppConfig(
@@ -164,6 +329,23 @@ class ApiTests(unittest.TestCase):
         self.assertIn("api", providers)
         self.assertIn("builtin", providers)
         self.assertNotIn("ollama", providers)
+
+    def test_tools_and_agents_debug_endpoints(self):
+        tools = self.client.get("/api/v1/tools")
+        self.assertEqual(tools.status_code, 200)
+        tool_payload = tools.json()
+        tool_names = {item["name"] for item in tool_payload}
+        self.assertIn("read_file", tool_names)
+        self.assertIn("write_file", tool_names)
+        write_tool = next(item for item in tool_payload if item["name"] == "write_file")
+        self.assertEqual(write_tool["risk_level"], "high")
+
+        agents = self.client.get("/api/v1/agents")
+        self.assertEqual(agents.status_code, 200)
+        agent_names = {item["name"] for item in agents.json()}
+        self.assertIn("simple_task", agent_names)
+        self.assertIn("file_agent", agent_names)
+        self.assertIn("task_agent", agent_names)
 
 
 class FileApiTests(unittest.TestCase):

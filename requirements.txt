@@ -1,6 +1,7 @@
 httpx>=0.28,<1
 PyYAML>=6.0,<7
 langchain-core>=1.2,<2
+langgraph>=1,<2
 langchain-openai>=1.1,<2
 langchain-ollama>=1.0,<2
 langchain-community>=0.4,<1

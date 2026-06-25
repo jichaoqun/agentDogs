@@ -70,8 +70,9 @@ function Welcome() {
   )
 }
 
-function Message({ message }) {
+function Message({ message, onClarify, onPlan, canResume }) {
   const assistant = message.role === 'assistant'
+  const interrupt = message.interrupt
   return (
     <article className={`message ${assistant ? 'assistant' : 'user'}`}>
       <div className="avatar">{assistant ? <Bot size={18} /> : <UserRound size={17} />}</div>
@@ -84,9 +85,177 @@ function Message({ message }) {
           </details>
         )}
         <div className="message-content">{message.content}</div>
+        {assistant && canResume && interrupt?.type === 'clarification' ? (
+          <button type="button" className="clarify-open" onClick={() => onClarify(interrupt)}>
+            补充信息
+          </button>
+        ) : null}
+        {assistant && canResume && interrupt?.type === 'plan_confirmation' ? (
+          <button type="button" className="clarify-open" onClick={() => onPlan(interrupt)}>
+            查看计划
+          </button>
+        ) : null}
         {message.backend && <span className="backend-chip">{message.backend}</span>}
       </div>
     </article>
+  )
+}
+
+function interruptClarification(interrupt) {
+  return interrupt?.clarification || null
+}
+
+function emptyClarifyAnswers(interrupt) {
+  const clarification = interruptClarification(interrupt)
+  return Object.fromEntries((clarification?.questions || []).map((question) => [question.id, '']))
+}
+
+function formatClarifyAnswers(interrupt, answers) {
+  const clarification = interruptClarification(interrupt)
+  const lines = ['补充信息：']
+  clarification.questions.forEach((question, index) => {
+    lines.push(`${index + 1}. ${question.question}`)
+    lines.push(`   ${(answers[question.id] || '').trim()}`)
+  })
+  return lines.join('\n')
+}
+
+function assistantFromResult(result) {
+  return {
+    ...result.message,
+    backend: `${result.provider}/${result.model}`,
+    reasoning: result.reasoning,
+    thinkingEnabled: result.thinking_enabled,
+    route: result.route,
+    complexity: result.complexity,
+    clarification: result.clarification,
+    planSteps: result.plan_steps,
+    status: result.status,
+    interrupt: result.interrupt,
+    planStatus: result.plan_status,
+    task: result.task,
+    steps: result.steps,
+    toolCalls: result.tool_calls,
+  }
+}
+
+function ClarifyDialog({ interrupt, answers, onAnswer, onClose, onSubmit, disabled }) {
+  const clarification = interruptClarification(interrupt)
+  if (!clarification) return null
+  const ready = clarification.questions.every((question) => (
+    !question.required || Boolean((answers[question.id] || '').trim())
+  ))
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="clarify-modal" role="dialog" aria-modal="true" aria-labelledby="clarify-title">
+        <div className="clarify-header">
+          <div>
+            <strong id="clarify-title">补充任务信息</strong>
+            <span>回答后会自动继续运行当前任务</span>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭补充信息弹窗"><X size={18} /></button>
+        </div>
+        <div className="clarify-original">
+          <span>原始任务</span>
+          <p>{clarification.original_message}</p>
+        </div>
+        <div className="clarify-questions">
+          {clarification.questions.map((question, index) => {
+            const value = answers[question.id] || ''
+            const customValue = question.options?.includes(value) ? '' : value
+            return (
+              <fieldset key={question.id} className="clarify-question">
+                <legend>{index + 1}. {question.question}{question.required ? <span>*</span> : null}</legend>
+                {question.options?.length ? (
+                  <div className="clarify-options">
+                    {question.options.map((option) => (
+                      <label key={option}>
+                        <input
+                          type="radio"
+                          name={`clarify-${question.id}`}
+                          checked={value === option}
+                          onChange={() => onAnswer(question.id, option)}
+                        />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+                {question.allow_custom ? (
+                  <textarea
+                    value={customValue}
+                    onChange={(event) => onAnswer(question.id, event.target.value)}
+                    placeholder={question.options?.length ? '自定义回答' : '请输入补充信息'}
+                    rows={2}
+                  />
+                ) : null}
+              </fieldset>
+            )
+          })}
+        </div>
+        <div className="clarify-actions">
+          <button type="button" onClick={onClose}>稍后再说</button>
+          <button type="button" className="primary" onClick={onSubmit} disabled={!ready || disabled}>
+            提交并继续
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function PlanDialog({ interrupt, feedback, onFeedback, onClose, onApprove, onRevise, onCancel, disabled }) {
+  const plan = interrupt?.plan
+  if (!plan) return null
+  const canRevise = Boolean(feedback.trim())
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="clarify-modal plan-modal" role="dialog" aria-modal="true" aria-labelledby="plan-title">
+        <div className="clarify-header">
+          <div>
+            <strong id="plan-title">确认执行计划</strong>
+            <span>第一阶段只确认计划，不会自动执行复杂任务</span>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭计划确认弹窗"><X size={18} /></button>
+        </div>
+        <div className="plan-body">
+          <section className="plan-section">
+            <span>任务摘要</span>
+            <p>{plan.summary || '等待确认的复杂任务计划。'}</p>
+          </section>
+          <section className="plan-section">
+            <span>计划步骤</span>
+            <ol>
+              {(plan.steps || []).map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}
+            </ol>
+          </section>
+          {plan.risks?.length ? (
+            <section className="plan-section">
+              <span>风险与确认点</span>
+              <ul>
+                {plan.risks.map((risk, index) => <li key={`${index}-${risk}`}>{risk}</li>)}
+              </ul>
+            </section>
+          ) : null}
+          <label className="plan-feedback">
+            <span>修改意见</span>
+            <textarea
+              value={feedback}
+              onChange={(event) => onFeedback(event.target.value)}
+              placeholder="如果计划需要调整，请写下你的修改意见"
+              rows={3}
+            />
+          </label>
+        </div>
+        <div className="clarify-actions plan-actions">
+          <button type="button" onClick={onCancel} disabled={disabled}>取消任务</button>
+          <button type="button" onClick={onRevise} disabled={!canRevise || disabled}>提交修改意见</button>
+          <button type="button" className="primary" onClick={onApprove} disabled={disabled}>确认计划</button>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -144,6 +313,10 @@ export default function App() {
   const [error, setError] = useState('')
   const [sidebar, setSidebar] = useState(true)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
+  const [clarifyDialog, setClarifyDialog] = useState(null)
+  const [clarifyAnswers, setClarifyAnswers] = useState({})
+  const [planDialog, setPlanDialog] = useState(null)
+  const [planFeedback, setPlanFeedback] = useState('')
   const [fileTree, setFileTree] = useState(null)
   const [expandedDirs, setExpandedDirs] = useState(new Set(['']))
   const [selectedFile, setSelectedFile] = useState(null)
@@ -219,14 +392,35 @@ export default function App() {
     }
   }
 
-  async function submit(event) {
-    event.preventDefault()
-    const text = input.trim()
-    if (!text || busy || !activeId) return
+  function openClarification(clarification) {
+    setClarifyDialog(clarification)
+    setClarifyAnswers(emptyClarifyAnswers(clarification))
+  }
 
+  function openPlan(interrupt) {
+    setPlanDialog(interrupt)
+    setPlanFeedback('')
+  }
+
+  function openAgentInterrupt(interrupt) {
+    if (interrupt?.type === 'clarification') {
+      openClarification(interrupt)
+    } else if (interrupt?.type === 'plan_confirmation') {
+      openPlan(interrupt)
+    }
+  }
+
+  function appendAgentResult(result) {
+    setMessages((current) => [...current, assistantFromResult(result)])
+    if (result.status === 'interrupted' && result.interrupt) {
+      openAgentInterrupt(result.interrupt)
+    }
+  }
+
+  async function sendChatMessage(text, { restoreOnFail = false } = {}) {
+    if (!text || busy || !activeId) return
     const modelForRequest = selectedModel
     const thinkingForRequest = Boolean(modelForRequest?.supports_thinking && thinkingEnabled)
-    setInput('')
     setError('')
     setMessages((current) => [...current, { role: 'user', content: text }])
     setBusy(true)
@@ -237,20 +431,78 @@ export default function App() {
         temperature,
         thinkingEnabled: thinkingForRequest,
       })
-      setMessages((current) => [...current, {
-        ...result.message,
-        backend: `${result.provider}/${result.model}`,
-        reasoning: result.reasoning,
-        thinkingEnabled: result.thinking_enabled,
-      }])
+      appendAgentResult(result)
       await refreshSessions()
     } catch (err) {
       setError(err.message)
       setMessages((current) => current.slice(0, -1))
-      setInput((current) => (current.length ? current : text))
+      if (restoreOnFail) setInput((current) => (current.length ? current : text))
     } finally {
       setBusy(false)
     }
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    const text = input.trim()
+    if (!text || busy || !activeId) return
+    setInput('')
+    await sendChatMessage(text, { restoreOnFail: true })
+  }
+
+  async function submitClarification() {
+    if (!clarifyDialog || busy) return
+    const interrupt = clarifyDialog
+    const userText = formatClarifyAnswers(interrupt, clarifyAnswers)
+    setClarifyDialog(null)
+    setClarifyAnswers({})
+    await resumeAgent(
+      {
+        interrupt_id: interrupt.id,
+        type: 'clarification',
+        answers: clarifyAnswers,
+      },
+      userText,
+    )
+  }
+
+  async function resumeAgent(payload, userText) {
+    if (busy || !activeId) return
+    setError('')
+    setMessages((current) => [...current, { role: 'user', content: userText }])
+    setBusy(true)
+    try {
+      const result = await api.resume(activeId, payload)
+      appendAgentResult(result)
+      await refreshSessions()
+    } catch (err) {
+      setError(err.message)
+      setMessages((current) => current.slice(0, -1))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitPlanDecision(decision) {
+    if (!planDialog || busy) return
+    const interrupt = planDialog
+    const feedback = planFeedback.trim()
+    const userText = decision === 'approve'
+      ? '确认计划，继续后续流程。'
+      : decision === 'cancel'
+        ? '取消当前任务。'
+        : `请根据以下意见修改计划：\n${feedback}`
+    setPlanDialog(null)
+    setPlanFeedback('')
+    await resumeAgent(
+      {
+        interrupt_id: interrupt.id,
+        type: 'plan_confirmation',
+        decision,
+        feedback,
+      },
+      userText,
+    )
   }
 
   function onKeyDown(event) {
@@ -401,9 +653,36 @@ export default function App() {
     ...group,
     models: models.filter((item) => item.provider === group.id),
   }))
+  const latestPendingInterruptIndex = (() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
+      if (message.role === 'assistant') {
+        return message.status === 'interrupted' && message.interrupt ? index : -1
+      }
+    }
+    return -1
+  })()
 
   return (
     <div className={`app-shell ${sidebar ? '' : 'sidebar-closed'}`}>
+      <ClarifyDialog
+        interrupt={clarifyDialog}
+        answers={clarifyAnswers}
+        onAnswer={(id, value) => setClarifyAnswers((current) => ({ ...current, [id]: value }))}
+        onClose={() => setClarifyDialog(null)}
+        onSubmit={submitClarification}
+        disabled={busy}
+      />
+      <PlanDialog
+        interrupt={planDialog}
+        feedback={planFeedback}
+        onFeedback={setPlanFeedback}
+        onClose={() => setPlanDialog(null)}
+        onApprove={() => submitPlanDecision('approve')}
+        onRevise={() => submitPlanDecision('revise')}
+        onCancel={() => submitPlanDecision('cancel')}
+        disabled={busy}
+      />
       <aside className="sidebar">
         <div className="brand-row">
           <div className="brand"><span className="brand-mark"><Bot size={20} /></span><span>Agent Dogs</span></div>
@@ -477,7 +756,15 @@ export default function App() {
           <>
             <section className="conversation">
               <div className="conversation-inner">
-                {!messages.length ? <Welcome /> : messages.map((message, index) => <Message key={`${index}-${message.role}`} message={message} />)}
+                {!messages.length ? <Welcome /> : messages.map((message, index) => (
+                  <Message
+                    key={`${index}-${message.role}`}
+                    message={message}
+                    onClarify={openClarification}
+                    onPlan={openPlan}
+                    canResume={index === latestPendingInterruptIndex}
+                  />
+                ))}
                 {busy && <div className="thinking"><span /><span /><span /> Agent 正在思考</div>}
                 <div ref={bottomRef} />
               </div>

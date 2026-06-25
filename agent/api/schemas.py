@@ -1,13 +1,52 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class ClarificationQuestionOut(BaseModel):
+    id: str
+    question: str
+    options: list[str] = Field(default_factory=list)
+    allow_custom: bool = True
+    required: bool = True
+
+
+class ClarificationOut(BaseModel):
+    original_message: str
+    questions: list[ClarificationQuestionOut] = Field(default_factory=list)
+
+
+class TaskPlanOut(BaseModel):
+    summary: str = ""
+    steps: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    requires_confirmation: bool = True
+
+
+class AgentInterruptOut(BaseModel):
+    id: str
+    type: Literal["clarification", "plan_confirmation"]
+    message: str
+    clarification: ClarificationOut | None = None
+    plan: TaskPlanOut | None = None
 
 
 class MessageOut(BaseModel):
     role: str
     content: str
+    route: str | None = None
+    complexity: str | None = None
+    clarification: ClarificationOut | None = None
+    plan_steps: list[str] | None = None
+    status: str | None = None
+    interrupt: AgentInterruptOut | None = None
+    plan_status: str | None = None
+    task: dict | None = None
+    steps: list[dict] | None = None
+    tool_calls: list[dict] | None = None
 
 
 class SessionOut(BaseModel):
@@ -31,6 +70,14 @@ class ChatRequest(BaseModel):
     thinking_enabled: bool = False
 
 
+class ResumeRequest(BaseModel):
+    interrupt_id: str = Field(min_length=1)
+    type: Literal["clarification", "plan_confirmation"]
+    answers: dict[str, str] = Field(default_factory=dict)
+    decision: Literal["approve", "revise", "cancel"] | None = None
+    feedback: str | None = None
+
+
 class FailureOut(BaseModel):
     backend: str
     reason: str
@@ -45,6 +92,32 @@ class ChatResponse(BaseModel):
     failures: list[FailureOut]
     reasoning: str | None = None
     thinking_enabled: bool = False
+    route: str | None = None
+    complexity: str | None = None
+    clarification: ClarificationOut | None = None
+    plan_steps: list[str] | None = None
+    status: str = "completed"
+    interrupt: AgentInterruptOut | None = None
+    plan_status: str | None = None
+    task: dict | None = None
+    steps: list[dict] | None = None
+    tool_calls: list[dict] | None = None
+
+
+class ToolInfoOut(BaseModel):
+    name: str
+    description: str
+    input_schema: dict
+    risk_level: str
+    capabilities: list[str] = Field(default_factory=list)
+
+
+class SubAgentInfoOut(BaseModel):
+    name: str
+    description: str
+    capabilities: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    risk_level: str
 
 
 class BackendStatus(BaseModel):

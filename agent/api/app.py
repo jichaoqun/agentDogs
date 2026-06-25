@@ -5,6 +5,7 @@ from html import escape
 import mimetypes
 from pathlib import Path
 import shutil
+from typing import Any
 from uuid import uuid4
 import zipfile
 import xml.etree.ElementTree as ET
@@ -16,6 +17,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import BaseMessage
 
+from agent.core.main_agent import AgentInterruptError
+from agent.core.sub_agents import create_default_sub_agent_registry
+from agent.core.tools import create_default_tool_registry
 from agent.core.utils.llm_config import AppConfig, load_config
 from agent.core.utils.llm_models import (
     GenerationOptions,
@@ -30,6 +34,7 @@ from .schemas import (
     BackendStatus,
     ChatRequest,
     ChatResponse,
+    ClarificationOut,
     FailureOut,
     FileContentOut,
     FileCreate,
@@ -38,9 +43,13 @@ from .schemas import (
     FileUpdate,
     MessageOut,
     ModelInfoOut,
+    ResumeRequest,
     SessionCreate,
     SessionOut,
+    SubAgentInfoOut,
     StatusResponse,
+    AgentInterruptOut,
+    ToolInfoOut,
 )
 from .sessions import ChatSession, SessionManager
 
@@ -190,7 +199,111 @@ def _trash_target(path: Path) -> Path:
 def _message_out(message: BaseMessage) -> MessageOut:
     role = "assistant" if message.type == "ai" else "user" if message.type == "human" else message.type
     content = message.content if isinstance(message.content, str) else str(message.content)
-    return MessageOut(role=role, content=content)
+    metadata = getattr(message, "additional_kwargs", {}) or {}
+    clarification = metadata.get("clarification")
+    interrupt = metadata.get("interrupt")
+    return MessageOut(
+        role=role,
+        content=content,
+        route=metadata.get("route"),
+        complexity=metadata.get("complexity"),
+        clarification=ClarificationOut.model_validate(clarification) if clarification else None,
+        plan_steps=metadata.get("plan_steps"),
+        status=metadata.get("status"),
+        interrupt=AgentInterruptOut.model_validate(interrupt) if interrupt else None,
+        plan_status=metadata.get("plan_status"),
+        task=metadata.get("task"),
+        steps=metadata.get("steps"),
+        tool_calls=metadata.get("tool_calls"),
+    )
+
+
+def _response_metadata(agent: Any) -> dict[str, Any]:
+    if hasattr(agent, "response_metadata"):
+        raw = agent.response_metadata()
+        interrupt = raw.get("interrupt")
+        clarification = raw.get("clarification")
+        return {
+            "route": raw.get("route"),
+            "complexity": raw.get("complexity"),
+            "clarification": ClarificationOut.model_validate(clarification) if clarification else None,
+            "plan_steps": raw.get("plan_steps"),
+            "status": raw.get("status", "completed"),
+            "interrupt": AgentInterruptOut.model_validate(interrupt) if interrupt else None,
+            "plan_status": raw.get("plan_status"),
+            "task": raw.get("task"),
+            "steps": raw.get("steps"),
+            "tool_calls": raw.get("tool_calls"),
+        }
+    state = getattr(agent, "last_state", None) or {}
+    analysis = state.get("task_analysis")
+    route = state.get("route")
+    metadata: dict[str, Any] = {
+        "route": route,
+        "complexity": getattr(analysis, "complexity", None),
+        "clarification": None,
+        "plan_steps": None,
+        "status": state.get("status", "completed"),
+        "interrupt": None,
+        "plan_status": state.get("plan_status"),
+        "task": {"status": state.get("task_status")} if state.get("task_status") else None,
+        "steps": state.get("task_steps"),
+        "tool_calls": state.get("tool_calls"),
+    }
+    if route == "clarify":
+        metadata["clarification"] = ClarificationOut.model_validate({
+            "original_message": state.get("user_input", ""),
+            "questions": [
+                item.model_dump() if hasattr(item, "model_dump") else item
+                for item in state.get("clarification_questions", [])
+            ],
+        })
+    if route == "future_task":
+        metadata["plan_steps"] = state.get("plan_steps", [])
+    interrupt = state.get("interrupt")
+    if interrupt:
+        metadata["interrupt"] = AgentInterruptOut.model_validate(interrupt)
+    return metadata
+
+
+def _chat_response(
+    session: ChatSession,
+    result: Any,
+    *,
+    thinking_enabled: bool,
+    metadata: dict[str, Any],
+) -> ChatResponse:
+    assistant_message = _message_out(result.message)
+    assistant_message.route = metadata["route"]
+    assistant_message.complexity = metadata["complexity"]
+    assistant_message.clarification = metadata["clarification"]
+    assistant_message.plan_steps = metadata["plan_steps"]
+    assistant_message.status = metadata["status"]
+    assistant_message.interrupt = metadata["interrupt"]
+    assistant_message.plan_status = metadata["plan_status"]
+    assistant_message.task = metadata["task"]
+    assistant_message.steps = metadata["steps"]
+    assistant_message.tool_calls = metadata["tool_calls"]
+    return ChatResponse(
+        session_id=session.id,
+        message=assistant_message,
+        backend=result.backend,
+        provider=result.provider,
+        model=result.model,
+        failures=[FailureOut(backend=name, reason=reason) for name, reason in result.failures],
+        reasoning=result.reasoning,
+        thinking_enabled=thinking_enabled,
+        route=metadata["route"],
+        complexity=metadata["complexity"],
+        clarification=metadata["clarification"],
+        plan_steps=metadata["plan_steps"],
+        status=metadata["status"],
+        interrupt=metadata["interrupt"],
+        plan_status=metadata["plan_status"],
+        task=metadata["task"],
+        steps=metadata["steps"],
+        tool_calls=metadata["tool_calls"],
+    )
 
 
 def _session_out(session: ChatSession, include_messages: bool = True) -> SessionOut:
@@ -249,6 +362,35 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
                 supports_thinking=item.supports_thinking,
             )
             for item in models
+        ]
+
+    @application.get("/api/v1/tools", response_model=list[ToolInfoOut])
+    def list_tools() -> list[ToolInfoOut]:
+        registry = create_default_tool_registry(WORKSPACE_ROOT)
+        return [
+            ToolInfoOut(
+                name=item.name,
+                description=item.description,
+                input_schema=item.input_schema,
+                risk_level=item.risk_level,
+                capabilities=item.capabilities,
+            )
+            for item in registry.list_specs()
+        ]
+
+    @application.get("/api/v1/agents", response_model=list[SubAgentInfoOut])
+    def list_agents() -> list[SubAgentInfoOut]:
+        tool_registry = create_default_tool_registry(WORKSPACE_ROOT)
+        registry = create_default_sub_agent_registry(tool_registry)
+        return [
+            SubAgentInfoOut(
+                name=item.name,
+                description=item.description,
+                capabilities=item.capabilities,
+                tools=item.tools,
+                risk_level=item.risk_level,
+            )
+            for item in registry.list_specs()
         ]
 
     @application.get("/api/v1/files/tree", response_model=FileNodeOut)
@@ -408,6 +550,8 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
         session = sessions.get(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="会话不存在")
+        if hasattr(session.agent, "has_pending_interrupt") and session.agent.has_pending_interrupt():
+            raise HTTPException(status_code=409, detail="当前任务正在等待补充或确认，请先处理当前弹窗")
         selected_provider = payload.provider or active_config.default_provider
         if payload.model:
             selected_model = payload.model
@@ -430,24 +574,52 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
                 payload.message,
                 selection=selection,
                 options=options,
+                thread_id=session.id,
             )
         except (ProviderNotFound, ModelNotFound, KeyError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except AgentInterruptError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ModelInvocationError as exc:
             raise HTTPException(
                 status_code=503,
                 detail={"message": "模型调用失败", "reason": str(exc)},
             ) from exc
         sessions.touch(session, first_message=payload.message)
-        return ChatResponse(
-            session_id=session.id,
-            message=MessageOut(role="assistant", content=result.content),
-            backend=result.backend,
-            provider=result.provider,
-            model=result.model,
-            failures=[FailureOut(backend=name, reason=reason) for name, reason in result.failures],
-            reasoning=result.reasoning,
+        metadata = _response_metadata(session.agent)
+        return _chat_response(
+            session,
+            result,
             thinking_enabled=payload.thinking_enabled,
+            metadata=metadata,
+        )
+
+    @application.post("/api/v1/sessions/{session_id}/resume", response_model=ChatResponse)
+    async def resume_message(session_id: str, payload: ResumeRequest) -> ChatResponse:
+        session = sessions.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            result = await run_in_threadpool(
+                session.agent.resume,
+                payload.interrupt_id,
+                payload.model_dump(exclude_none=True),
+                thread_id=session.id,
+            )
+        except AgentInterruptError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ModelInvocationError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"message": "模型调用失败", "reason": str(exc)},
+            ) from exc
+        sessions.touch(session)
+        metadata = _response_metadata(session.agent)
+        return _chat_response(
+            session,
+            result,
+            thinking_enabled=False,
+            metadata=metadata,
         )
 
     if FRONTEND_DIST.is_dir():
