@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 
-from agent.core.main_agent import AgentInterruptError, MainAgent
-from agent.core.tools import create_file_tool_registry
+from agent.core.main_agent import AgentInterruptError, AgentRunCancelled, MainAgent
+from agent.core.tools import create_default_tool_registry, create_file_tool_registry
 from agent.core.utils.llm_config import AppConfig, ProviderConfig, load_config
 from agent.core.utils.llm_models import (
     GenerationOptions,
@@ -161,6 +161,27 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["route"], "simple_chat")
         self.assertEqual(len(fake.seen), 1)
 
+    def test_cancelled_run_does_not_record_late_model_response(self):
+        manager = ModelManager(make_config())
+        cancelled = [False]
+
+        class CancellingProvider(FakeProvider):
+            def invoke(self, messages, model, options):
+                response = super().invoke(messages, model, options)
+                cancelled[0] = True
+                return response
+
+        fake = CancellingProvider(ProviderConfig(), reply="late answer")
+        manager.providers = {"fake": fake}
+        manager.default_selection = ModelSelection("fake", "demo")
+        agent = MainAgent(make_config(), manager)
+
+        with self.assertRaises(AgentRunCancelled):
+            agent.chat("你好", is_cancelled=lambda: cancelled[0])
+
+        self.assertEqual(agent.history.messages, [])
+        self.assertEqual(len(fake.seen), 1)
+
     def test_complex_project_task_routes_to_future_task_plan(self):
         manager, fake = make_manager(reply="must not be used")
         agent = MainAgent(make_config(), manager)
@@ -242,6 +263,62 @@ class MainFlowTests(unittest.TestCase):
         self.assertIn("hello file", result.content)
         self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "read_file")
         self.assertEqual(len(fake.seen), 0)
+
+    def test_workspace_search_routes_to_simple_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("important protein note", encoding="utf-8")
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(make_config(), manager, create_default_tool_registry(root))
+
+            result = agent.chat("搜索 workspace 中的 protein")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("notes.md", result.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "workspace_search")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_web_search_without_config_returns_controlled_message(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("联网查一下 langgraph")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("联网搜索未启用", result.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "web_search")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_complex_research_routes_to_future_task_plan(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("帮我调研 LangGraph 并整理对比")
+
+        self.assertEqual(agent.last_state["route"], "future_task")
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "plan_confirmation")
+        self.assertIn("执行计划", result.content)
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_search_after_chat_does_not_reuse_previous_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("important protein note", encoding="utf-8")
+            manager, fake = make_manager(reply="上一轮聊天回答")
+            agent = MainAgent(make_config(), manager, create_default_tool_registry(root))
+
+            first = agent.chat("你好", thread_id="search-session")
+            second = agent.chat("搜索 protein", thread_id="search-session")
+
+        self.assertEqual(first.content, "上一轮聊天回答")
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertIn("notes.md", second.content)
+        self.assertNotEqual(second.content, first.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "workspace_search")
+        self.assertEqual(len(fake.seen), 1)
 
     def test_high_risk_file_task_does_not_auto_execute(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -377,6 +454,13 @@ providers:
   api: {enabled: true, api_key: '${TEST_AGENT_KEY}', model: demo, base_url: 'http://x/v1'}
   builtin: {enabled: true, model: '../model.gguf'}
   ollama: {enabled: false}
+search:
+  enabled: true
+  provider: duckduckgo
+  max_results: 7
+  fetch_pages: 2
+  timeout: 3
+  user_agent: AgentDogsTest/0.1
 """
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config" / "llm.yaml"
@@ -387,6 +471,12 @@ providers:
         self.assertEqual(config.providers["api"].api_key, "secret")
         self.assertEqual((config.default_provider, config.default_model), ("api", "demo"))
         self.assertTrue(Path(config.providers["builtin"].model).is_absolute())
+        self.assertTrue(config.search.enabled)
+        self.assertEqual(config.search.provider, "duckduckgo")
+        self.assertEqual(config.search.max_results, 7)
+        self.assertEqual(config.search.fetch_pages, 2)
+        self.assertEqual(config.search.timeout, 3.0)
+        self.assertEqual(config.search.user_agent, "AgentDogsTest/0.1")
 
 
 if __name__ == "__main__":

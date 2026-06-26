@@ -85,10 +85,13 @@ export const api = {
     return request(`/sessions/${id}/messages`, {
       method: 'POST',
       body: JSON.stringify(payload),
+      signal: options.signal,
     })
   },
-  resume: (id, payload) => request(`/sessions/${id}/resume`, {
+  resume: (id, payload, options = {}) => request(`/sessions/${id}/resume`, {
     method: 'POST',
     body: JSON.stringify(payload),
+    signal: options.signal,
   }),
+  cancelSessionRun: (id) => request(`/sessions/${id}/cancel`, { method: 'POST' }),
 }

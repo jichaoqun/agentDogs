@@ -3,7 +3,7 @@ import {
   AlertTriangle, Bot, Brain, ChevronDown, ChevronLeft, ChevronRight,
   CirclePlus, Download, Edit3, FilePlus, FileText, Folder, FolderOpen,
   FolderPlus, Image as ImageIcon, Menu, MessageSquareText, PanelLeftClose,
-  RefreshCw, Save, Send, Settings2, Sparkles, Trash2, Upload, UserRound, X,
+  RefreshCw, Save, Send, Settings2, Sparkles, StopCircle, Trash2, Upload, UserRound, X,
 } from 'lucide-react'
 import { api } from './api.js'
 
@@ -59,6 +59,26 @@ function formatBytes(bytes = 0) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function formatMessageTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function localMessage(role, content, extra = {}) {
+  return {
+    role,
+    content,
+    created_at: new Date().toISOString(),
+    ...extra,
+  }
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError'
+}
+
 function Welcome() {
   return (
     <div className="welcome">
@@ -70,21 +90,214 @@ function Welcome() {
   )
 }
 
+function safeLinkHref(href) {
+  const value = String(href || '').trim()
+  return /^(https?:|mailto:)/i.test(value) ? value : ''
+}
+
+function renderInlineMarkdown(text, keyPrefix = 'inline') {
+  const parts = []
+  const source = String(text || '')
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g
+  let lastIndex = 0
+  let match
+  while ((match = pattern.exec(source)) !== null) {
+    if (match.index > lastIndex) parts.push(source.slice(lastIndex, match.index))
+    const token = match[0]
+    const key = `${keyPrefix}-${match.index}`
+    if (token.startsWith('`')) {
+      parts.push(<code key={key}>{token.slice(1, -1)}</code>)
+    } else if (token.startsWith('**')) {
+      parts.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2), `${key}-strong`)}</strong>)
+    } else if (token.startsWith('[')) {
+      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+      const href = safeLinkHref(link?.[2])
+      parts.push(href ? (
+        <a key={key} href={href} target="_blank" rel="noreferrer">
+          {renderInlineMarkdown(link[1], `${key}-link`)}
+        </a>
+      ) : (
+        <span key={key}>{link?.[1] || token}</span>
+      ))
+    } else if (token.startsWith('*')) {
+      parts.push(<em key={key}>{renderInlineMarkdown(token.slice(1, -1), `${key}-em`)}</em>)
+    }
+    lastIndex = pattern.lastIndex
+  }
+  if (lastIndex < source.length) parts.push(source.slice(lastIndex))
+  return parts
+}
+
+function parseMarkdownBlocks(content) {
+  const lines = String(content || '').replace(/\r\n/g, '\n').split('\n')
+  const blocks = []
+  let paragraph = []
+  let list = null
+  let quote = []
+  let code = null
+
+  function flushParagraph() {
+    if (!paragraph.length) return
+    blocks.push({ type: 'paragraph', text: paragraph.join(' ') })
+    paragraph = []
+  }
+
+  function flushList() {
+    if (!list) return
+    blocks.push(list)
+    list = null
+  }
+
+  function flushQuote() {
+    if (!quote.length) return
+    blocks.push({ type: 'quote', lines: quote })
+    quote = []
+  }
+
+  function flushTextBlocks() {
+    flushParagraph()
+    flushList()
+    flushQuote()
+  }
+
+  lines.forEach((line) => {
+    const fence = line.match(/^```(\S*)\s*$/)
+    if (code) {
+      if (fence) {
+        blocks.push({ type: 'code', language: code.language, text: code.lines.join('\n') })
+        code = null
+      } else {
+        code.lines.push(line)
+      }
+      return
+    }
+    if (fence) {
+      flushTextBlocks()
+      code = { language: fence[1] || '', lines: [] }
+      return
+    }
+    if (!line.trim()) {
+      flushTextBlocks()
+      return
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/)
+    if (heading) {
+      flushTextBlocks()
+      blocks.push({ type: 'heading', level: heading[1].length, text: heading[2].trim() })
+      return
+    }
+
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/)
+    if (unordered) {
+      flushParagraph()
+      flushQuote()
+      if (!list || list.kind !== 'ul') {
+        flushList()
+        list = { type: 'list', kind: 'ul', items: [] }
+      }
+      list.items.push(unordered[1])
+      return
+    }
+
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/)
+    if (ordered) {
+      flushParagraph()
+      flushQuote()
+      if (!list || list.kind !== 'ol') {
+        flushList()
+        list = { type: 'list', kind: 'ol', items: [] }
+      }
+      list.items.push(ordered[1])
+      return
+    }
+
+    const quoted = line.match(/^\s*>\s?(.*)$/)
+    if (quoted) {
+      flushParagraph()
+      flushList()
+      quote.push(quoted[1])
+      return
+    }
+
+    flushList()
+    flushQuote()
+    paragraph.push(line.trim())
+  })
+
+  if (code) blocks.push({ type: 'code', language: code.language, text: code.lines.join('\n') })
+  flushTextBlocks()
+  return blocks.length ? blocks : [{ type: 'paragraph', text: String(content || '') }]
+}
+
+function MarkdownContent({ content }) {
+  try {
+    const blocks = parseMarkdownBlocks(content)
+    return (
+      <div className="message-content markdown-content">
+        {blocks.map((block, index) => {
+          if (block.type === 'heading') {
+            const Heading = `h${block.level}`
+            return <Heading key={index}>{renderInlineMarkdown(block.text, `h-${index}`)}</Heading>
+          }
+          if (block.type === 'code') {
+            return (
+              <pre key={index} data-language={block.language || undefined}>
+                <code>{block.text}</code>
+              </pre>
+            )
+          }
+          if (block.type === 'list') {
+            const ListTag = block.kind
+            return (
+              <ListTag key={index}>
+                {block.items.map((item, itemIndex) => (
+                  <li key={itemIndex}>{renderInlineMarkdown(item, `li-${index}-${itemIndex}`)}</li>
+                ))}
+              </ListTag>
+            )
+          }
+          if (block.type === 'quote') {
+            return (
+              <blockquote key={index}>
+                {block.lines.map((line, lineIndex) => (
+                  <p key={lineIndex}>{renderInlineMarkdown(line, `q-${index}-${lineIndex}`)}</p>
+                ))}
+              </blockquote>
+            )
+          }
+          return <p key={index}>{renderInlineMarkdown(block.text, `p-${index}`)}</p>
+        })}
+      </div>
+    )
+  } catch {
+    return <div className="message-content plain-text">{content}</div>
+  }
+}
+
 function Message({ message, onClarify, onPlan, canResume }) {
   const assistant = message.role === 'assistant'
   const interrupt = message.interrupt
+  const time = formatMessageTime(message.created_at)
   return (
     <article className={`message ${assistant ? 'assistant' : 'user'}`}>
       <div className="avatar">{assistant ? <Bot size={18} /> : <UserRound size={17} />}</div>
       <div className="message-body">
-        <div className="message-meta">{assistant ? 'Agent Dogs' : '你'}</div>
+        <div className="message-meta">
+          <span>{assistant ? 'Agent Dogs' : '你'}</span>
+          {time ? <time dateTime={message.created_at}>{time}</time> : null}
+        </div>
         {assistant && message.reasoning && (
           <details className="reasoning-block">
             <summary><Brain size={14} />思考过程</summary>
             <div>{message.reasoning}</div>
           </details>
         )}
-        <div className="message-content">{message.content}</div>
+        {assistant ? (
+          <MarkdownContent content={message.content} />
+        ) : (
+          <div className="message-content plain-text">{message.content}</div>
+        )}
         {assistant && canResume && interrupt?.type === 'clarification' ? (
           <button type="button" className="clarify-open" onClick={() => onClarify(interrupt)}>
             补充信息
@@ -326,6 +539,7 @@ export default function App() {
   const [fileBusy, setFileBusy] = useState(false)
   const bottomRef = useRef(null)
   const uploadInputRef = useRef(null)
+  const activeRequestRef = useRef(null)
 
   useEffect(() => {
     Promise.all([api.sessions(), api.status(), api.models()])
@@ -341,6 +555,10 @@ export default function App() {
         }
       })
       .catch((err) => setError(`无法连接后端：${err.message}`))
+  }, [])
+
+  useEffect(() => () => {
+    activeRequestRef.current?.abort()
   }, [])
 
   useEffect(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages, busy])
@@ -417,12 +635,29 @@ export default function App() {
     }
   }
 
+  async function cancelCurrentRun() {
+    if (!busy || !activeId) return
+    const controller = activeRequestRef.current
+    activeRequestRef.current = null
+    controller?.abort()
+    setBusy(false)
+    setMessages((current) => [...current, localMessage('assistant', '本轮回复已中断。', { status: 'cancelled' })])
+    try {
+      await api.cancelSessionRun(activeId)
+      await refreshSessions()
+    } catch (err) {
+      if (!isAbortError(err)) setError(err.message)
+    }
+  }
+
   async function sendChatMessage(text, { restoreOnFail = false } = {}) {
     if (!text || busy || !activeId) return
     const modelForRequest = selectedModel
     const thinkingForRequest = Boolean(modelForRequest?.supports_thinking && thinkingEnabled)
+    const controller = new AbortController()
+    activeRequestRef.current = controller
     setError('')
-    setMessages((current) => [...current, { role: 'user', content: text }])
+    setMessages((current) => [...current, localMessage('user', text)])
     setBusy(true)
     try {
       const result = await api.send(activeId, text, {
@@ -430,15 +665,20 @@ export default function App() {
         model: modelForRequest?.model,
         temperature,
         thinkingEnabled: thinkingForRequest,
+        signal: controller.signal,
       })
       appendAgentResult(result)
       await refreshSessions()
     } catch (err) {
+      if (isAbortError(err)) return
       setError(err.message)
       setMessages((current) => current.slice(0, -1))
       if (restoreOnFail) setInput((current) => (current.length ? current : text))
     } finally {
-      setBusy(false)
+      if (activeRequestRef.current === controller) {
+        activeRequestRef.current = null
+        setBusy(false)
+      }
     }
   }
 
@@ -468,18 +708,24 @@ export default function App() {
 
   async function resumeAgent(payload, userText) {
     if (busy || !activeId) return
+    const controller = new AbortController()
+    activeRequestRef.current = controller
     setError('')
-    setMessages((current) => [...current, { role: 'user', content: userText }])
+    setMessages((current) => [...current, localMessage('user', userText)])
     setBusy(true)
     try {
-      const result = await api.resume(activeId, payload)
+      const result = await api.resume(activeId, payload, { signal: controller.signal })
       appendAgentResult(result)
       await refreshSessions()
     } catch (err) {
+      if (isAbortError(err)) return
       setError(err.message)
       setMessages((current) => current.slice(0, -1))
     } finally {
-      setBusy(false)
+      if (activeRequestRef.current === controller) {
+        activeRequestRef.current = null
+        setBusy(false)
+      }
     }
   }
 
@@ -774,7 +1020,15 @@ export default function App() {
               <form className="composer" onSubmit={submit}>
                 <div className="composer-main">
                   <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onKeyDown} placeholder="给 Agent Dogs 发送消息" rows="1" />
-                  <button type="submit" disabled={!input.trim() || busy} aria-label="发送"><Send size={19} /></button>
+                  <button
+                    type={busy ? 'button' : 'submit'}
+                    className={busy ? 'stop-send' : ''}
+                    disabled={busy ? false : !input.trim()}
+                    onClick={busy ? cancelCurrentRun : undefined}
+                    aria-label={busy ? '中断当前回复' : '发送'}
+                  >
+                    {busy ? <StopCircle size={19} /> : <Send size={19} />}
+                  </button>
                 </div>
                 <div className="composer-toolbar">
                   <select className="model-select" value={selectedModelKey} onChange={(event) => setSelectedModelKey(event.target.value)} disabled={!models.length} aria-label="选择模型">

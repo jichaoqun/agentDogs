@@ -3,9 +3,18 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from agent.core.sub_agents import FileAgent, SimpleTaskAgent, TaskAgent, create_default_sub_agent_registry
-from agent.core.tools import ToolRegistry, ToolSpec, create_file_tool_registry
+from agent.core.sub_agents import FileAgent, SearchAgent, SimpleTaskAgent, TaskAgent, create_default_sub_agent_registry
+from agent.core.tools import ToolRegistry, ToolSpec, create_default_tool_registry
+from agent.core.utils.llm_config import SearchConfig
+
+
+class FakeHttpResponse:
+    def __init__(self, text: str, status_code: int = 200, headers: dict[str, str] | None = None):
+        self.text = text
+        self.status_code = status_code
+        self.headers = headers or {"content-type": "text/html; charset=utf-8"}
 
 
 class ToolAndAgentTests(unittest.TestCase):
@@ -15,7 +24,7 @@ class ToolAndAgentTests(unittest.TestCase):
         (self.root / "notes.md").write_text("hello workspace\nimportant protein note", encoding="utf-8")
         (self.root / "src").mkdir()
         (self.root / "src" / "app.py").write_text("print('hi')", encoding="utf-8")
-        self.registry = create_file_tool_registry(self.root)
+        self.registry = create_default_tool_registry(self.root)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -64,6 +73,75 @@ class ToolAndAgentTests(unittest.TestCase):
         write_spec = self.registry.get("write_file").spec
         self.assertEqual(write_spec.risk_level, "high")
 
+    def test_search_tools_return_structured_results_and_safe_web_failure(self):
+        workspace = self.registry.call("workspace_search", {"query": "protein"})
+        self.assertTrue(workspace.ok)
+        self.assertEqual(workspace.data["results"][0]["path"], "notes.md")
+        self.assertEqual(workspace.data["results"][0]["source"], "workspace")
+
+        keyword = self.registry.call("keyword_search", {"query": "protein", "text": "alpha\nprotein beta"})
+        self.assertTrue(keyword.ok)
+        self.assertEqual(keyword.data["results"][0]["title"], "文本第 2 行")
+
+        empty = self.registry.call("workspace_search", {"query": ""})
+        self.assertFalse(empty.ok)
+        self.assertIn("关键词不能为空", empty.error)
+
+        web = self.registry.call("web_search", {"query": "langgraph"})
+        self.assertFalse(web.ok)
+        self.assertIn("联网搜索未启用", web.error)
+
+    def test_web_search_fetches_and_extracts_page_content(self):
+        registry = create_default_tool_registry(
+            self.root,
+            SearchConfig(enabled=True, max_results=2, fetch_pages=1, timeout=2),
+        )
+        search_html = """
+        <html><body>
+          <a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Flanggraph">LangGraph docs</a>
+          <div class="result__snippet">Build reliable agents with graph orchestration.</div>
+          <a class="result__a" href="/l/?uddg=http%3A%2F%2F127.0.0.1%2Fprivate">Unsafe local result</a>
+          <div class="result__snippet">Should not be fetched.</div>
+        </body></html>
+        """
+        page_html = """
+        <html>
+          <head><title>LangGraph Overview</title><script>ignore()</script></head>
+          <body><nav>menu</nav><main>LangGraph is a framework for building stateful agents.</main></body>
+        </html>
+        """
+
+        def fake_get(url, **kwargs):
+            if "duckduckgo.com" in url:
+                return FakeHttpResponse(search_html)
+            if url == "https://example.com/langgraph":
+                return FakeHttpResponse(page_html)
+            raise AssertionError(f"unexpected URL: {url}")
+
+        with patch("agent.core.tools.search_tools.httpx.get", side_effect=fake_get):
+            result = registry.call("web_search", {"query": "LangGraph", "max_results": 2, "fetch_pages": 2})
+
+        self.assertTrue(result.ok)
+        results = result.data["results"]
+        self.assertEqual(results[0]["url"], "https://example.com/langgraph")
+        self.assertTrue(results[0]["fetched"])
+        self.assertIn("stateful agents", results[0]["content_excerpt"])
+        self.assertEqual(results[1]["url"], "http://127.0.0.1/private")
+        self.assertFalse(results[1]["fetched"])
+        self.assertIn("安全策略", results[1]["error"])
+
+    def test_web_search_reports_http_failures(self):
+        registry = create_default_tool_registry(self.root, SearchConfig(enabled=True))
+
+        def fake_get(url, **kwargs):
+            raise TimeoutError("network slow")
+
+        with patch("agent.core.tools.search_tools.httpx.get", side_effect=fake_get):
+            result = registry.call("web_search", {"query": "LangGraph"})
+
+        self.assertFalse(result.ok)
+        self.assertIn("联网搜索失败", result.error)
+
     def test_sub_agent_registry_lists_default_agents(self):
         registry = create_default_sub_agent_registry(self.registry)
         names = {item.name for item in registry.list_specs()}
@@ -71,6 +149,7 @@ class ToolAndAgentTests(unittest.TestCase):
         self.assertIn("simple_chat", names)
         self.assertIn("simple_task", names)
         self.assertIn("file_agent", names)
+        self.assertIn("search_agent", names)
         self.assertIn("task_agent", names)
         with self.assertRaises(ValueError):
             registry.register(registry.get("file_agent").spec, None)
@@ -89,7 +168,7 @@ class ToolAndAgentTests(unittest.TestCase):
         self.assertEqual((self.root / "notes.md").read_text(encoding="utf-8").splitlines()[0], "hello workspace")
 
     def test_simple_task_agent_executes_low_risk_file_tools(self):
-        agent = SimpleTaskAgent(self.registry)
+        agent = SimpleTaskAgent(self.registry, SearchAgent(self.registry))
 
         tree = agent.handle("当前项目中有哪些文件")
         self.assertTrue(tree.ok)
@@ -104,7 +183,7 @@ class ToolAndAgentTests(unittest.TestCase):
         search = agent.handle("搜索 protein")
         self.assertTrue(search.ok)
         self.assertIn("notes.md", search.content)
-        self.assertEqual(search.tool_calls[0]["tool"], "search_files")
+        self.assertEqual(search.tool_calls[0]["tool"], "workspace_search")
 
     def test_simple_task_agent_defers_high_risk_tools(self):
         agent = SimpleTaskAgent(self.registry)
@@ -115,18 +194,34 @@ class ToolAndAgentTests(unittest.TestCase):
         self.assertEqual(result.status, "waiting_confirmation")
         self.assertEqual((self.root / "notes.md").read_text(encoding="utf-8").splitlines()[0], "hello workspace")
 
+    def test_search_agent_formats_workspace_and_web_results(self):
+        agent = SearchAgent(self.registry)
+
+        workspace = agent.handle("搜索 protein")
+        self.assertTrue(workspace.ok)
+        self.assertIn("workspace 搜索找到", workspace.content)
+        self.assertIn("notes.md", workspace.content)
+        self.assertEqual(workspace.tool_calls[0]["tool"], "workspace_search")
+
+        web = agent.handle("联网查一下 langgraph")
+        self.assertTrue(web.ok)
+        self.assertIn("联网搜索未启用", web.content)
+        self.assertEqual(web.tool_calls[0]["tool"], "web_search")
+
     def test_task_agent_records_step_statuses(self):
         file_agent = FileAgent(self.registry)
-        task_agent = TaskAgent(file_agent)
+        task_agent = TaskAgent(file_agent, SearchAgent(self.registry))
 
         result = task_agent.execute(
             user_input="请处理 notes.md",
-            plan_steps=["读取 notes.md", "修改 notes.md"],
+            plan_steps=["读取 notes.md", "搜索 protein", "修改 notes.md"],
         )
 
         self.assertEqual(result.status, "waiting_confirmation")
         self.assertEqual(result.steps[0].status, "completed")
-        self.assertEqual(result.steps[1].status, "waiting_confirmation")
+        self.assertEqual(result.steps[1].assigned_agent, "SearchAgent")
+        self.assertEqual(result.steps[1].status, "completed")
+        self.assertEqual(result.steps[2].status, "waiting_confirmation")
         self.assertTrue(result.tool_calls)
 
 

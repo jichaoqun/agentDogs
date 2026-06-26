@@ -62,6 +62,8 @@ class AgentState(TypedDict, total=False):
 
     messages: list[BaseMessage]
     user_input: str
+    current_time: str
+    current_time_context: str
     task_analysis: TaskAnalysis
     route: Route
     status: AgentStatus

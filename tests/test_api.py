@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from langchain_core.chat_history import InMemoryChatMessageHistory
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 api_app = importlib.import_module("agent.api.app")
 from agent.api.app import create_app
@@ -16,15 +16,16 @@ from agent.api.sessions import SessionManager
 from agent.core.state import ClarificationQuestion, TaskAnalysis
 from agent.core.utils.llm_config import AppConfig, ProviderConfig
 from agent.core.utils.llm_models import ModelInvocationError, ModelResponse
+from agent.core.utils.time_utils import isoformat
 
 
 class FakeAgent:
     def __init__(self, config):
         self.history = InMemoryChatMessageHistory()
 
-    def chat(self, text, *, selection=None, options=None, thread_id=None):
-        self.history.add_user_message(text)
-        message = AIMessage(content=f"收到：{text}")
+    def chat(self, text, *, selection=None, options=None, thread_id=None, is_cancelled=None):
+        self.history.add_message(HumanMessage(content=text, additional_kwargs={"created_at": isoformat()}))
+        message = AIMessage(content=f"收到：{text}", additional_kwargs={"created_at": isoformat()})
         self.history.add_message(message)
         reasoning = "测试思考" if options and options.thinking_enabled else None
         return ModelResponse(
@@ -37,8 +38,8 @@ class FakeAgent:
 
 
 class ClarifyFakeAgent(FakeAgent):
-    def chat(self, text, *, selection=None, options=None, thread_id=None):
-        self.history.add_user_message(text)
+    def chat(self, text, *, selection=None, options=None, thread_id=None, is_cancelled=None):
+        self.history.add_message(HumanMessage(content=text, additional_kwargs={"created_at": isoformat()}))
         clarification = {
             "original_message": text,
             "questions": [
@@ -64,6 +65,7 @@ class ClarifyFakeAgent(FakeAgent):
                 "route": "clarify",
                 "complexity": "needs_info",
                 "status": "interrupted",
+                "created_at": isoformat(),
                 "clarification": clarification,
                 "interrupt": interrupt,
             },
@@ -104,17 +106,17 @@ class ResumeFakeAgent(ClarifyFakeAgent):
     def has_pending_interrupt(self):
         return self.pending
 
-    def chat(self, text, *, selection=None, options=None, thread_id=None):
+    def chat(self, text, *, selection=None, options=None, thread_id=None, is_cancelled=None):
         self.pending = True
-        return super().chat(text, selection=selection, options=options, thread_id=thread_id)
+        return super().chat(text, selection=selection, options=options, thread_id=thread_id, is_cancelled=is_cancelled)
 
-    def resume(self, interrupt_id, payload, *, thread_id=None):
+    def resume(self, interrupt_id, payload, *, thread_id=None, is_cancelled=None):
         if interrupt_id != "interrupt-1":
             from agent.core.main_agent import AgentInterruptError
 
             raise AgentInterruptError("bad interrupt")
         self.pending = False
-        self.history.add_user_message("补充信息")
+        self.history.add_message(HumanMessage(content="补充信息", additional_kwargs={"created_at": isoformat()}))
         plan = {
             "summary": "处理目标 A",
             "steps": ["确认目标", "执行分析"],
@@ -134,6 +136,7 @@ class ResumeFakeAgent(ClarifyFakeAgent):
                 "route": "future_task",
                 "complexity": "needs_info",
                 "status": "interrupted",
+                "created_at": isoformat(),
                 "plan_steps": plan["steps"],
                 "plan_status": "pending",
                 "interrupt": interrupt,
@@ -173,9 +176,29 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["message"]["content"], "收到：你好")
         self.assertEqual(response.json()["provider"], "builtin")
         self.assertEqual(response.json()["model"], "builtin")
+        self.assertIsNotNone(response.json()["message"]["created_at"])
         detail = self.client.get(f"/api/v1/sessions/{created['id']}").json()
         self.assertEqual([item["role"] for item in detail["messages"]], ["user", "assistant"])
+        self.assertTrue(all(item["created_at"] for item in detail["messages"]))
         self.assertEqual(detail["title"], "你好")
+
+    def test_cancel_endpoint_marks_active_session_run(self):
+        created = self.client.post("/api/v1/sessions", json={}).json()
+        session = self.client.app.state.sessions.get(created["id"])
+        run_id = self.client.app.state.sessions.begin_run(session)
+
+        response = self.client.post(f"/api/v1/sessions/{created['id']}/cancel")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["cancelled"])
+        self.assertEqual(payload["status"], "cancelling")
+        self.assertTrue(self.client.app.state.sessions.is_run_cancelled(created["id"], run_id))
+        next_run_id = self.client.app.state.sessions.begin_run(session)
+        self.assertNotEqual(next_run_id, run_id)
+        self.assertFalse(self.client.app.state.sessions.is_run_cancelled(created["id"], next_run_id))
+        self.assertFalse(self.client.app.state.sessions.finish_run(session, next_run_id))
+        self.assertTrue(self.client.app.state.sessions.finish_run(session, run_id))
 
     def test_missing_session_is_404(self):
         response = self.client.post("/api/v1/sessions/missing/messages", json={"message": "test"})
@@ -337,6 +360,8 @@ class ApiTests(unittest.TestCase):
         tool_names = {item["name"] for item in tool_payload}
         self.assertIn("read_file", tool_names)
         self.assertIn("write_file", tool_names)
+        self.assertIn("workspace_search", tool_names)
+        self.assertIn("web_search", tool_names)
         write_tool = next(item for item in tool_payload if item["name"] == "write_file")
         self.assertEqual(write_tool["risk_level"], "high")
 
@@ -345,6 +370,7 @@ class ApiTests(unittest.TestCase):
         agent_names = {item["name"] for item in agents.json()}
         self.assertIn("simple_task", agent_names)
         self.assertIn("file_agent", agent_names)
+        self.assertIn("search_agent", agent_names)
         self.assertIn("task_agent", agent_names)
 
 

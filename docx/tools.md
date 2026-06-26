@@ -40,10 +40,35 @@ SimpleTaskAgent 可以访问工具注册表，但第一版只自动执行低风�
 中风险和高风险工具必须进入计划确认或人工确认流程，不能被简单任务静默执行。
 
 ## 搜索工具
-支持：
-web_search
-local_search
-keyword_search
+
+当前已实现受控搜索工具：
+
+- `workspace_search`: 搜索 workspace 中的文件名和文本内容，底层复用文件搜索能力，并返回统一搜索结果结构。
+- `keyword_search`: 在给定文本或结果列表中做关键词匹配、排序和摘要。
+- `web_search`: 联网搜索入口。第一版默认使用 DuckDuckGo HTML/lite best-effort provider，不需要 API key；启用后会抓取前几个搜索结果页正文，返回标题、URL、站点、摘要、正文片段、抓取状态和命中原因。
+
+联网搜索配置位于 `config/llm.yaml` 顶层 `search` 节，不混入 LLM `providers`：
+
+```yaml
+search:
+  enabled: false
+  provider: duckduckgo
+  max_results: 5
+  fetch_pages: 3
+  timeout: 10
+  user_agent: AgentDogs/0.1
+```
+
+也可以用环境变量 `AGENT_WEB_SEARCH_ENABLED=1` 临时启用。未启用、网络失败、搜索源拒绝或页面抓取失败时，工具返回结构化错误，不让 Agent 编造联网结果。
+
+搜索工具安全规则：
+
+- 搜索工具均为只读低风险工具。
+- `workspace_search` 只访问 workspace。
+- `web_search` 只支持 `http/https`，拒绝 `localhost`、私有 IP、内网域名、`file://` 和非 HTTP 协议，避免 SSRF。
+- `web_search` 限制结果数量、请求超时、响应大小和正文片段长度，避免长网页撑爆上下文。
+- `web_search` 未启用或请求失败时只返回明确提示，不调用模型编造联网结果。
+- 搜索结果需要保留来源、路径或 URL，供 Agent 汇总时引用。
 
 ## 文档工具
 支持：

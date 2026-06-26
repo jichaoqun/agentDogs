@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import re
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from langchain_core.chat_history import InMemoryChatMessageHistory
@@ -33,6 +33,7 @@ from .utils.llm_models import (
     ModelResponse,
     ModelSelection,
 )
+from .utils.time_utils import current_time_context, isoformat, now_local
 
 
 COMPLEX_MARKERS = (
@@ -105,11 +106,18 @@ SIMPLE_FILE_SCOPE_MARKERS = ("当前项目", "当前工作目录", "当前目录
 SIMPLE_FILE_READ_MARKERS = ("读取", "查看", "打开", "预览", "内容", "看一下")
 SIMPLE_FILE_SEARCH_MARKERS = ("搜索", "查找", "检索", "找一下", "包含")
 SIMPLE_FILE_INFO_MARKERS = ("信息", "属性", "大小", "类型", "元信息")
+WEB_SEARCH_MARKERS = ("联网", "网上", "网络", "互联网", "web", "Web")
+RESEARCH_MARKERS = ("调研", "研究")
+RESEARCH_COMPLEX_MARKERS = ("整理", "对比", "报告", "分析", "方案", "总结")
 HIGH_RISK_TOOL_MARKERS = ("写入", "保存", "修改", "改写", "删除", "重命名", "创建", "新增", "覆盖", "移动", "上传", "下载")
 
 
 class AgentInterruptError(RuntimeError):
     """Raised when a pending LangGraph interrupt cannot be resumed safely."""
+
+
+class AgentRunCancelled(RuntimeError):
+    """Raised when the current agent run was cancelled by the user."""
 
 
 @dataclass(slots=True)
@@ -130,7 +138,7 @@ class MainAgent:
     def __post_init__(self) -> None:
         models = self.models or ModelManager(self.config)
         self.models = models
-        self.tool_registry = self.tool_registry or create_default_tool_registry()
+        self.tool_registry = self.tool_registry or create_default_tool_registry(search_config=self.config.search)
         self.simple_chat_agent = SimpleChatAgent(self.config, models, self.history)
         self.sub_agent_registry = create_default_sub_agent_registry(self.tool_registry, self.simple_chat_agent)
         self.simple_task_agent = self.sub_agent_registry.get("simple_task").agent
@@ -145,7 +153,9 @@ class MainAgent:
         options: GenerationOptions | None = None,
         thinking_enabled: bool | None = None,
         thread_id: str | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> ModelResponse:
+        self._raise_if_cancelled(is_cancelled)
         if self.pending_interrupt is not None:
             raise AgentInterruptError("当前任务正在等待补充或确认，请先处理当前弹窗。")
         text = user_input.strip()
@@ -153,10 +163,13 @@ class MainAgent:
             raise ValueError("消息不能为空")
         if thinking_enabled is not None and options is None:
             options = GenerationOptions(thinking_enabled=thinking_enabled)
+        now = now_local()
 
         initial_state: AgentState = {
             "messages": list(self.history.messages),
             "user_input": text,
+            "current_time": now.isoformat(),
+            "current_time_context": current_time_context(now),
             "selection": selection,
             "options": options,
             "errors": [],
@@ -176,6 +189,7 @@ class MainAgent:
         return self._handle_graph_result(
             result_state,
             user_record=text,
+            is_cancelled=is_cancelled,
         )
 
     def resume(
@@ -184,7 +198,9 @@ class MainAgent:
         payload: dict[str, Any],
         *,
         thread_id: str | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> ModelResponse:
+        self._raise_if_cancelled(is_cancelled)
         if Command is None:
             raise AgentInterruptError("当前环境不支持 LangGraph resume。")
         if self.pending_interrupt is None:
@@ -196,6 +212,9 @@ class MainAgent:
             raise AgentInterruptError("恢复类型与当前中断任务不匹配。")
 
         resume_payload = self._normalize_resume_payload(payload)
+        now = now_local()
+        resume_payload["current_time"] = now.isoformat()
+        resume_payload["current_time_context"] = current_time_context(now)
         result_state = self._graph.invoke(
             Command(resume=resume_payload),
             self._thread_config(thread_id),
@@ -203,6 +222,7 @@ class MainAgent:
         return self._handle_graph_result(
             result_state,
             user_record=self._resume_summary(expected_type, resume_payload),
+            is_cancelled=is_cancelled,
         )
 
     def clear(self) -> None:
@@ -215,6 +235,10 @@ class MainAgent:
 
     def response_metadata(self) -> dict[str, Any]:
         return self._message_metadata(self.last_state or {})
+
+    def _raise_if_cancelled(self, is_cancelled: Callable[[], bool] | None) -> None:
+        if is_cancelled and is_cancelled():
+            raise AgentRunCancelled("当前对话已被用户中断。")
 
     def _thread_config(self, thread_id: str | None) -> dict[str, dict[str, str]]:
         return {"configurable": {"thread_id": thread_id or self._default_thread_id}}
@@ -245,11 +269,18 @@ class MainAgent:
         result_state: AgentState,
         *,
         user_record: str | None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> ModelResponse:
         interrupts = result_state.get("__interrupt__") or []
         if interrupts:
-            return self._handle_interrupt(result_state, interrupts[0], user_record=user_record)
+            return self._handle_interrupt(
+                result_state,
+                interrupts[0],
+                user_record=user_record,
+                is_cancelled=is_cancelled,
+            )
 
+        self._raise_if_cancelled(is_cancelled)
         self.pending_interrupt = None
         result_state["status"] = "completed"
         self.last_state = result_state
@@ -257,10 +288,9 @@ class MainAgent:
         if result is None:
             raise RuntimeError("Agent graph completed without a model response")
 
-        if user_record and result_state.get("route") != "simple_chat":
-            self.history.add_user_message(user_record)
-            self.history.add_message(result.message)
-            self._trim_history()
+        result = self._with_message_metadata(result, result_state)
+        if user_record:
+            self._record_history(user_record, result.message)
         return result
 
     def _handle_interrupt(
@@ -269,7 +299,9 @@ class MainAgent:
         interrupt_obj: Any,
         *,
         user_record: str | None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> ModelResponse:
+        self._raise_if_cancelled(is_cancelled)
         payload = interrupt_obj.value if isinstance(interrupt_obj.value, dict) else {}
         interrupt_id = str(getattr(interrupt_obj, "id", "") or uuid4().hex)
         interrupt_type = str(payload.get("type") or "clarification")
@@ -294,9 +326,7 @@ class MainAgent:
 
         message = AIMessage(content=content, additional_kwargs=self._message_metadata(state))
         if user_record:
-            self.history.add_user_message(user_record)
-        self.history.add_message(message)
-        self._trim_history()
+            self._record_history(user_record, message)
         selected = self._selected_model(state.get("selection"))
         return ModelResponse(
             content=content,
@@ -358,7 +388,7 @@ class MainAgent:
         try:
             analysis = self._rule_analysis(text)
             if analysis is None:
-                analysis = self._llm_analysis(text, state.get("selection"))
+                analysis = self._llm_analysis(text, state.get("selection"), state.get("current_time_context", ""))
         except Exception as exc:  # Keep routing available when judgment fails.
             errors.append(f"analyze_task: {exc}")
             analysis = TaskAnalysis(
@@ -403,6 +433,7 @@ class MainAgent:
             state["user_input"],
             selection=state.get("selection"),
             options=state.get("options"),
+            current_time=state.get("current_time_context", ""),
         )
         return {
             "model_response": result,
@@ -616,6 +647,25 @@ class MainAgent:
                     "在真正写入、删除或移动前请求用户确认。",
                 ],
             )
+        if self._is_complex_research_task(text):
+            return TaskAnalysis(
+                intent=text[:80],
+                complexity="complex",
+                task_kind="task",
+                route_hint="future_task",
+                tool_intents=["workspace_search", "web_search"],
+                estimated_steps=4,
+                risk_level="medium",
+                requires_confirmation=True,
+                confidence=0.8,
+                reason="任务涉及调研、整理或对比，通常需要多步骤搜索和汇总，应先确认计划。",
+                suggested_steps=[
+                    "确认调研目标、范围和输出格式。",
+                    "选择 workspace 搜索或联网搜索来源。",
+                    "汇总搜索结果并按主题整理。",
+                    "输出对比结论、来源和未覆盖风险。",
+                ],
+            )
         tool_intents = self._simple_tool_intents(text)
         if tool_intents:
             return TaskAnalysis(
@@ -656,7 +706,12 @@ class MainAgent:
             )
         return None
 
-    def _llm_analysis(self, text: str, selection: ModelSelection | None) -> TaskAnalysis:
+    def _llm_analysis(
+        self,
+        text: str,
+        selection: ModelSelection | None,
+        current_time: str = "",
+    ) -> TaskAnalysis:
         if self.models is None:
             raise RuntimeError("Model manager is not initialized")
         prompt = (
@@ -667,6 +722,7 @@ class MainAgent:
             "task_kind 只能是 chat、tool、task、unknown；risk_level 只能是 low、medium、high。\n"
             "simple: 普通问答、解释、闲聊、简单文本生成。\n"
             "simple_task: 目标明确、低风险、可直接使用工具完成，例如列文件、读明确路径文件、搜索文件、查看文件信息。\n"
+            "联网查一下、搜索 workspace 中的明确关键词属于 simple_task；调研并整理对比属于 complex。\n"
             "needs_info: 缺少目标文件、范围、输出格式或确认条件。\n"
             "complex: 多步骤、项目/代码/文件操作、需要执行或长期跟踪。\n"
             "写入、删除、重命名、上传下载、命令执行必须视为 high risk 且 requires_confirmation=true。\n"
@@ -674,6 +730,8 @@ class MainAgent:
             "每个 options 给 2-4 个简短候选项；不能确定候选项时 options 为空且 allow_custom=true。\n"
             f"用户输入：{text}"
         )
+        if current_time:
+            prompt = f"{prompt}\n\n{current_time}"
         result = self.models.chat(
             [
                 SystemMessage(content="你是主 Agent 的任务解析器。"),
@@ -703,6 +761,9 @@ class MainAgent:
             f"补充信息：\n{answer_lines}\n\n"
             f"用户对上一版计划的修改意见：{feedback_text}"
         )
+        current_time = state.get("current_time_context", "")
+        if current_time:
+            prompt = f"{prompt}\n\n{current_time}"
         result = self.models.chat(
             [
                 SystemMessage(content="你是主 Agent 的任务规划器。"),
@@ -736,8 +797,10 @@ class MainAgent:
             intents.append("file_info")
         elif has_path and any(marker in text for marker in SIMPLE_FILE_READ_MARKERS):
             intents.append("read_file")
+        if self._is_web_search_request(text):
+            intents.append("web_search")
         if self._is_file_search_request(text):
-            intents.append("search_files")
+            intents.append("workspace_search")
         return intents
 
     def _is_file_list_request(self, text: str) -> bool:
@@ -747,12 +810,25 @@ class MainAgent:
         return has_scope and "文件" in text and any(marker in text for marker in ("哪些", "有什么", "列表", "列出"))
 
     def _is_file_search_request(self, text: str) -> bool:
+        if self._is_web_search_request(text):
+            return False
         if not any(marker in text for marker in SIMPLE_FILE_SEARCH_MARKERS):
             return False
         cleaned = text
         for marker in SIMPLE_FILE_SEARCH_MARKERS + ("文件", "内容", "workspace", "中", "的", "一下", "包含"):
             cleaned = cleaned.replace(marker, " ")
         return bool(cleaned.strip(" ，,。；;：:"))
+
+    def _is_web_search_request(self, text: str) -> bool:
+        if not any(marker in text for marker in WEB_SEARCH_MARKERS):
+            return False
+        return any(marker in text for marker in SIMPLE_FILE_SEARCH_MARKERS + ("查询", "查一下", "搜一下", "搜索"))
+
+    def _is_complex_research_task(self, text: str) -> bool:
+        return (
+            any(marker in text for marker in RESEARCH_MARKERS)
+            and any(marker in text for marker in RESEARCH_COMPLEX_MARKERS)
+        )
 
     def _looks_high_risk_tool_task(self, text: str) -> bool:
         if not any(marker in text for marker in HIGH_RISK_TOOL_MARKERS):
@@ -882,6 +958,7 @@ class MainAgent:
         analysis = state.get("task_analysis")
         route = state.get("route")
         metadata: dict[str, Any] = {
+            "created_at": isoformat(),
             "status": state.get("status", "completed"),
             "interrupt": state.get("interrupt"),
             "plan_status": state.get("plan_status"),
@@ -907,6 +984,31 @@ class MainAgent:
             if plan:
                 metadata["plan"] = plan.model_dump()
         return metadata
+
+    def _with_message_metadata(self, result: ModelResponse, state: AgentState) -> ModelResponse:
+        existing = getattr(result.message, "additional_kwargs", {}) or {}
+        message = AIMessage(
+            content=result.message.content,
+            additional_kwargs={**existing, **self._message_metadata(state)},
+            response_metadata=getattr(result.message, "response_metadata", {}) or {},
+        )
+        return ModelResponse(
+            content=result.content,
+            message=message,
+            provider=result.provider,
+            model=result.model,
+            reasoning=result.reasoning,
+            raw_content=result.raw_content,
+        )
+
+    def _record_history(self, user_record: str, assistant_message: AIMessage) -> None:
+        user_message = HumanMessage(
+            content=user_record,
+            additional_kwargs={"created_at": isoformat()},
+        )
+        self.history.add_message(user_message)
+        self.history.add_message(assistant_message)
+        self._trim_history()
 
     def _selected_model(self, selection: ModelSelection | None) -> ModelSelection:
         if self.models is None:

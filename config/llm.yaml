@@ -5,6 +5,13 @@ default_model:
   model: builtin
 history:
   max_messages: 40
+search:
+  enabled: false
+  provider: duckduckgo
+  max_results: 5
+  fetch_pages: 3
+  timeout: 10
+  user_agent: AgentDogs/0.1
 providers:
   api:
     enabled: true

@@ -79,10 +79,10 @@ SimpleTaskAgent 是简单工具任务执行器：
 
 - 接收 MainAgent 已判断为 `simple_task` 的请求。
 - 通过 `ToolRegistry` 调用低风险工具。
-- 第一版支持 `list_workspace_tree`、`read_file`、`search_files`、`file_info`。
+- 第一版支持 `list_workspace_tree`、`read_file`、`workspace_search`、`web_search`、`file_info`。
 - 即使工具注册表中存在高风险工具，也不会静默调用写入、删除、重命名、上传下载或命令执行类工具。
 
-SimpleTaskAgent 适合处理目标明确的一步工具任务，例如“当前项目中有哪些文件”“读取 你好.md”“搜索 protein”“查看 notes.md 信息”。
+SimpleTaskAgent 适合处理目标明确的一步工具任务，例如“当前项目中有哪些文件”“读取 你好.md”“搜索 protein”“联网查一下 LangGraph”“查看 notes.md 信息”。
 
 ## LangChain / LangGraph 技术选择
 
@@ -278,6 +278,8 @@ POST /api/v1/sessions/{id}/resume
 - “当前工作目录有哪些文件”
 - “读取 你好.md”
 - “搜索 protein”
+- “搜索 workspace 中的 protein”
+- “联网查一下 LangGraph”
 - “查看 notes.md 信息”
 
 ### needs_info
@@ -306,6 +308,7 @@ POST /api/v1/sessions/{id}/resume
 示例：
 
 - “帮我分析整个项目并生成报告”
+- “帮我调研 LangGraph 并整理对比”
 - “实现一个新的文件管理模块”
 - “修复后端接口并补充测试”
 
@@ -317,7 +320,7 @@ TaskAgent 承接复杂任务的执行：
 
 - 接收 MainAgent 生成的 `plan_steps`。
 - 将计划步骤转成执行记录，状态包括 `pending`、`running`、`completed`、`failed`、`waiting_confirmation`。
-- 第一阶段只调用 FileAgent，不接 CodeAgent、SearchAgent、KnowledgeAgent。
+- 第一阶段调用 FileAgent 和 SearchAgent，不接 CodeAgent、KnowledgeAgent。
 - 汇总每一步结果、错误和下一步建议。
 - 遇到写文件、删除、命令执行等高风险步骤时，不自动执行，标记为 `waiting_confirmation`。
 
@@ -345,10 +348,13 @@ TaskAgent 承接复杂任务的执行：
 
 负责外部信息能力：
 
-- 网络搜索。
-- 网页解析。
-- 信息汇总。
-- 当前未实现，后续接入。
+- workspace 搜索。
+- 关键词搜索。
+- 联网搜索入口：启用 `search.enabled` 后使用 DuckDuckGo HTML/lite best-effort 搜索，并抓取前几个结果页正文片段。
+- 搜索结果汇总。
+- 第一版不直接写文件，不写入长期记忆。
+- `web_search` 未启用、网络失败或页面抓取失败时返回明确提示，不编造联网结果。
+- 联网结果必须保留来源 URL、标题、摘要、正文片段和抓取状态，供后续回答引用。
 
 ### CodeAgent
 

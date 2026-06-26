@@ -8,6 +8,7 @@ from typing import Any
 
 from ..tools import ToolRegistry, ToolResult
 from .registry import SubAgentResult
+from .search_agent import SearchAgent
 
 
 PATH_HINT = re.compile(
@@ -25,11 +26,11 @@ LIST_MARKERS = (
     "当前工作目录",
     "当前目录",
     "当前项目",
-    "workspace",
 )
 READ_MARKERS = ("读取", "查看", "打开", "预览", "内容", "看一下")
 INFO_MARKERS = ("信息", "属性", "大小", "类型", "元信息")
-SEARCH_MARKERS = ("搜索", "查找", "检索", "找一下", "包含")
+SEARCH_MARKERS = ("搜索", "查找", "检索", "找一下", "查询", "查一下", "搜一下", "包含")
+WEB_MARKERS = ("联网", "网上", "网络", "互联网", "web", "Web")
 HIGH_RISK_MARKERS = ("写入", "保存", "修改", "改写", "删除", "重命名", "创建", "新增", "覆盖", "移动", "上传", "下载")
 
 
@@ -43,6 +44,7 @@ class SimpleTaskAgent:
     """
 
     tools: ToolRegistry
+    search_agent: SearchAgent | None = None
 
     def handle(self, user_input: str) -> SubAgentResult:
         text = user_input.strip()
@@ -60,6 +62,8 @@ class SimpleTaskAgent:
         if path and self._looks_like_read(text):
             return self._read_file(path)
         if self._looks_like_search(text):
+            if self.search_agent is not None:
+                return self.search_agent.handle(text)
             query = self._extract_search_query(text, path)
             if query:
                 return self._search_files(query)
@@ -106,16 +110,18 @@ class SimpleTaskAgent:
 
     def _search_files(self, query: str) -> SubAgentResult:
         payload = {"query": query, "limit": 10}
-        result = self._call_low_risk("search_files", payload)
-        tool_call = self._tool_call("search_files", payload, result.ok)
+        tool_name = "workspace_search" if self._has_tool("workspace_search") else "search_files"
+        result = self._call_low_risk(tool_name, payload)
+        tool_call = self._tool_call(tool_name, payload, result.ok)
         if not result.ok:
             return SubAgentResult.failure(result.error or "搜索文件失败", tool_calls=[tool_call])
-        matches = (result.data or {}).get("matches", [])
+        data = result.data or {}
+        matches = data.get("results") or data.get("matches", [])
         if not matches:
             return SubAgentResult.success(f"未在 workspace 中找到与“{query}”匹配的文件。", data=result.data, tool_calls=[tool_call])
         lines = [f"在 workspace 中找到 {len(matches)} 个匹配项："]
         for item in matches:
-            detail = item.get("snippet") or item.get("match", "")
+            detail = item.get("summary") or item.get("snippet") or item.get("match_reason") or item.get("match", "")
             lines.append(f"- {item.get('path', '')} ({detail})")
         return SubAgentResult.success("\n".join(lines), data=result.data, tool_calls=[tool_call])
 
@@ -124,6 +130,13 @@ class SimpleTaskAgent:
         if tool.spec.risk_level != "low":
             return ToolResult.failure(f"工具 {name} 风险等级为 {tool.spec.risk_level}，需要人工确认。")
         return self.tools.call(name, payload)
+
+    def _has_tool(self, name: str) -> bool:
+        try:
+            self.tools.get(name)
+            return True
+        except KeyError:
+            return False
 
     def _looks_like_list(self, text: str) -> bool:
         return any(marker in text for marker in LIST_MARKERS)
@@ -135,7 +148,7 @@ class SimpleTaskAgent:
         return any(marker in text for marker in INFO_MARKERS)
 
     def _looks_like_search(self, text: str) -> bool:
-        return any(marker in text for marker in SEARCH_MARKERS)
+        return any(marker in text for marker in SEARCH_MARKERS) or any(marker in text for marker in WEB_MARKERS)
 
     def _looks_high_risk(self, text: str) -> bool:
         return any(marker in text for marker in HIGH_RISK_MARKERS)

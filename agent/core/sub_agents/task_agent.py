@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .file_agent import FileAgent
+from .search_agent import SearchAgent
+
+
+SEARCH_STEP_MARKERS = ("搜索", "查找", "检索", "查询", "调研", "联网", "网上", "网络")
 
 
 StepStatus = Literal["pending", "running", "completed", "failed", "waiting_confirmation"]
@@ -51,9 +55,10 @@ class TaskExecutionResult:
 
 @dataclass(slots=True)
 class TaskAgent:
-    """Minimal coordinator that delegates first-phase work to FileAgent only."""
+    """Minimal coordinator that delegates first-phase work to specialist agents."""
 
     file_agent: FileAgent
+    search_agent: SearchAgent | None = None
 
     def execute(self, *, user_input: str, plan_steps: list[str]) -> TaskExecutionResult:
         records: list[TaskStepRecord] = []
@@ -62,7 +67,12 @@ class TaskAgent:
 
         for index, title in enumerate(plan_steps, start=1):
             record = TaskStepRecord(index=index, title=title, status="running")
-            result = self.file_agent.handle_step(title, user_input=user_input)
+            if self.search_agent is not None and self._looks_like_search_step(title, user_input):
+                record.assigned_agent = "SearchAgent"
+                result = self.search_agent.handle_step(title, user_input=user_input)
+            else:
+                record.assigned_agent = "FileAgent"
+                result = self.file_agent.handle_step(title, user_input=user_input)
             record.tool_calls = result.tool_calls
             all_tool_calls.extend(result.tool_calls)
             if result.ok:
@@ -95,3 +105,7 @@ class TaskAgent:
         if status == "failed":
             return f"TaskAgent 已完成 {completed} 个步骤，{failed} 个步骤失败。"
         return f"TaskAgent 已完成 {completed} 个步骤。"
+
+    def _looks_like_search_step(self, title: str, user_input: str) -> bool:
+        text = f"{title}\n{user_input}"
+        return any(marker in text for marker in SEARCH_STEP_MARKERS)

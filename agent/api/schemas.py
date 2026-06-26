@@ -37,6 +37,7 @@ class AgentInterruptOut(BaseModel):
 class MessageOut(BaseModel):
     role: str
     content: str
+    created_at: datetime | None = None
     route: str | None = None
     complexity: str | None = None
     clarification: ClarificationOut | None = None
@@ -92,6 +93,7 @@ class ChatResponse(BaseModel):
     failures: list[FailureOut]
     reasoning: str | None = None
     thinking_enabled: bool = False
+    cancelled: bool = False
     route: str | None = None
     complexity: str | None = None
     clarification: ClarificationOut | None = None
@@ -102,6 +104,12 @@ class ChatResponse(BaseModel):
     task: dict | None = None
     steps: list[dict] | None = None
     tool_calls: list[dict] | None = None
+
+
+class CancelRunResponse(BaseModel):
+    session_id: str
+    cancelled: bool
+    status: str
 
 
 class ToolInfoOut(BaseModel):

@@ -30,15 +30,14 @@ class SimpleChatAgent:
         *,
         selection: ModelSelection | None = None,
         options: GenerationOptions | None = None,
+        current_time: str = "",
     ) -> ModelResponse:
+        system_prompt = self.config.system_prompt
+        if current_time:
+            system_prompt = f"{system_prompt}\n\n{current_time}"
         messages = [
-            SystemMessage(content=self.config.system_prompt),
+            SystemMessage(content=system_prompt),
             *self.history.messages,
             HumanMessage(content=user_input),
         ]
-        result = self.models.chat(messages, selection=selection, options=options)
-        self.history.add_user_message(user_input)
-        self.history.add_message(result.message)
-        if len(self.history.messages) > self.config.max_history_messages:
-            self.history.messages = self.history.messages[-self.config.max_history_messages:]
-        return result
+        return self.models.chat(messages, selection=selection, options=options)

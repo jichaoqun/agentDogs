@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import BaseMessage
 
-from agent.core.main_agent import AgentInterruptError
+from agent.core.main_agent import AgentInterruptError, AgentRunCancelled
 from agent.core.sub_agents import create_default_sub_agent_registry
 from agent.core.tools import create_default_tool_registry
 from agent.core.utils.llm_config import AppConfig, load_config
@@ -34,6 +34,7 @@ from .schemas import (
     BackendStatus,
     ChatRequest,
     ChatResponse,
+    CancelRunResponse,
     ClarificationOut,
     FailureOut,
     FileContentOut,
@@ -52,6 +53,7 @@ from .schemas import (
     ToolInfoOut,
 )
 from .sessions import ChatSession, SessionManager
+from agent.core.utils.time_utils import now_local, parse_datetime
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -205,6 +207,7 @@ def _message_out(message: BaseMessage) -> MessageOut:
     return MessageOut(
         role=role,
         content=content,
+        created_at=parse_datetime(metadata.get("created_at")),
         route=metadata.get("route"),
         complexity=metadata.get("complexity"),
         clarification=ClarificationOut.model_validate(clarification) if clarification else None,
@@ -293,6 +296,7 @@ def _chat_response(
         failures=[FailureOut(backend=name, reason=reason) for name, reason in result.failures],
         reasoning=result.reasoning,
         thinking_enabled=thinking_enabled,
+        cancelled=metadata.get("status") == "cancelled",
         route=metadata["route"],
         complexity=metadata["complexity"],
         clarification=metadata["clarification"],
@@ -303,6 +307,33 @@ def _chat_response(
         task=metadata["task"],
         steps=metadata["steps"],
         tool_calls=metadata["tool_calls"],
+    )
+
+
+def _cancelled_chat_response(
+    session: ChatSession,
+    *,
+    provider: str,
+    model: str,
+    thinking_enabled: bool,
+) -> ChatResponse:
+    message = MessageOut(
+        role="assistant",
+        content="本轮回复已中断。",
+        created_at=now_local(),
+        status="cancelled",
+    )
+    return ChatResponse(
+        session_id=session.id,
+        message=message,
+        backend=provider,
+        provider=provider,
+        model=model,
+        failures=[],
+        reasoning=None,
+        thinking_enabled=thinking_enabled,
+        cancelled=True,
+        status="cancelled",
     )
 
 
@@ -366,7 +397,7 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
 
     @application.get("/api/v1/tools", response_model=list[ToolInfoOut])
     def list_tools() -> list[ToolInfoOut]:
-        registry = create_default_tool_registry(WORKSPACE_ROOT)
+        registry = create_default_tool_registry(WORKSPACE_ROOT, active_config.search)
         return [
             ToolInfoOut(
                 name=item.name,
@@ -380,7 +411,7 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
 
     @application.get("/api/v1/agents", response_model=list[SubAgentInfoOut])
     def list_agents() -> list[SubAgentInfoOut]:
-        tool_registry = create_default_tool_registry(WORKSPACE_ROOT)
+        tool_registry = create_default_tool_registry(WORKSPACE_ROOT, active_config.search)
         registry = create_default_sub_agent_registry(tool_registry)
         return [
             SubAgentInfoOut(
@@ -545,6 +576,18 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
             raise HTTPException(status_code=404, detail="会话不存在")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    @application.post("/api/v1/sessions/{session_id}/cancel", response_model=CancelRunResponse)
+    def cancel_session_run(session_id: str) -> CancelRunResponse:
+        session = sessions.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        cancelled = sessions.cancel_run(session)
+        return CancelRunResponse(
+            session_id=session.id,
+            cancelled=cancelled,
+            status=session.run_status,
+        )
+
     @application.post("/api/v1/sessions/{session_id}/messages", response_model=ChatResponse)
     async def send_message(session_id: str, payload: ChatRequest) -> ChatResponse:
         session = sessions.get(session_id)
@@ -568,6 +611,11 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
             max_tokens=payload.max_tokens,
             thinking_enabled=payload.thinking_enabled,
         )
+        run_id = ""
+        try:
+            run_id = sessions.begin_run(session)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         try:
             result = await run_in_threadpool(
                 session.agent.chat,
@@ -575,6 +623,15 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
                 selection=selection,
                 options=options,
                 thread_id=session.id,
+                is_cancelled=lambda: sessions.is_run_cancelled(session.id, run_id),
+            )
+        except AgentRunCancelled:
+            sessions.touch(session)
+            return _cancelled_chat_response(
+                session,
+                provider=selected_provider,
+                model=selected_model,
+                thinking_enabled=payload.thinking_enabled,
             )
         except (ProviderNotFound, ModelNotFound, KeyError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -585,6 +642,16 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
                 status_code=503,
                 detail={"message": "模型调用失败", "reason": str(exc)},
             ) from exc
+        finally:
+            cancelled_after_return = sessions.finish_run(session, run_id) if run_id else False
+        if cancelled_after_return:
+            sessions.touch(session)
+            return _cancelled_chat_response(
+                session,
+                provider=selected_provider,
+                model=selected_model,
+                thinking_enabled=payload.thinking_enabled,
+            )
         sessions.touch(session, first_message=payload.message)
         metadata = _response_metadata(session.agent)
         return _chat_response(
@@ -600,11 +667,23 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
         if session is None:
             raise HTTPException(status_code=404, detail="会话不存在")
         try:
+            run_id = sessions.begin_run(session)
             result = await run_in_threadpool(
                 session.agent.resume,
                 payload.interrupt_id,
                 payload.model_dump(exclude_none=True),
                 thread_id=session.id,
+                is_cancelled=lambda: sessions.is_run_cancelled(session.id, run_id),
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AgentRunCancelled:
+            sessions.touch(session)
+            return _cancelled_chat_response(
+                session,
+                provider=active_config.default_provider,
+                model=active_config.default_model,
+                thinking_enabled=False,
             )
         except AgentInterruptError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -613,6 +692,16 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
                 status_code=503,
                 detail={"message": "模型调用失败", "reason": str(exc)},
             ) from exc
+        finally:
+            cancelled_after_return = sessions.finish_run(session, run_id) if "run_id" in locals() else False
+        if cancelled_after_return:
+            sessions.touch(session)
+            return _cancelled_chat_response(
+                session,
+                provider=active_config.default_provider,
+                model=active_config.default_model,
+                thinking_enabled=False,
+            )
         sessions.touch(session)
         metadata = _response_metadata(session.agent)
         return _chat_response(
