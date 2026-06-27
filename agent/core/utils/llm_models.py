@@ -97,6 +97,33 @@ def _message_text(message: AIMessage) -> str:
     return "".join(parts)
 
 
+def _message_reasoning(message: AIMessage) -> str | None:
+    """Extract provider-native reasoning/thinking text when present."""
+    containers = (
+        getattr(message, "additional_kwargs", {}) or {},
+        getattr(message, "response_metadata", {}) or {},
+    )
+    for item in containers:
+        for key in ("thinking", "reasoning", "reasoning_content", "thought"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    if isinstance(message.content, list):
+        parts: list[str] = []
+        for block in message.content:
+            if isinstance(block, dict) and block.get("type") in {
+                "thinking",
+                "reasoning",
+                "reasoning_content",
+            }:
+                text = block.get("text") or block.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        if parts:
+            return "".join(parts).strip() or None
+    return None
+
+
 _THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
 _THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
 
@@ -250,19 +277,33 @@ class OllamaProvider(_LangChainProvider):
         try:
             response = httpx.get(f"{self.base_url}/api/tags", timeout=min(self.config.timeout, 10))
             response.raise_for_status()
-            names = [item["name"] for item in response.json().get("models", []) if item.get("name")]
             thinking_models = self.config.extra.get("thinking_models", [])
             return [
                 ModelInfo(
                     self.provider_id,
-                    name,
-                    name,
-                    supports_thinking=(thinking_models == "*" or name in thinking_models),
+                    item["name"],
+                    item["name"],
+                    supports_thinking=self._supports_thinking(item, thinking_models),
                 )
-                for name in names
+                for item in response.json().get("models", [])
+                if item.get("name")
             ]
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             raise ModelInvocationError(f"无法读取 Ollama 模型列表: {exc}") from exc
+
+    def _supports_thinking(self, item: dict[str, Any], thinking_models: Any) -> bool:
+        name = str(item.get("name", ""))
+        if thinking_models == "*" or name in thinking_models:
+            return True
+        details = item.get("details", {}) or {}
+        family = str(details.get("family", "")).lower()
+        families = {str(value).lower() for value in details.get("families", []) or []}
+        model_key = name.lower()
+        return (
+            family.startswith(("qwen3", "qwen35", "deepseek-r1"))
+            or any(value.startswith(("qwen3", "qwen35", "deepseek-r1")) for value in families)
+            or model_key.startswith(("qwen3", "qwen3.", "qwen3-", "deepseek-r1"))
+        )
 
     def create_client(self, model: str) -> BaseChatModel:
         if not model:
@@ -284,17 +325,17 @@ class OllamaProvider(_LangChainProvider):
         options: GenerationOptions,
     ) -> AIMessage:
         try:
-            call_kwargs = dict(options.extra)
-            ollama_options = dict(call_kwargs.pop("options", {}))
-            ollama_options.update(
-                temperature=self._temperature(options),
-                num_predict=self._max_tokens(options),
-            )
+            request_options = {
+                "temperature": self._temperature(options),
+                "num_predict": self._max_tokens(options),
+            }
+            request_kwargs = dict(options.extra)
+            request_options.update(request_kwargs.pop("options", {}) or {})
             response = self.client(model).invoke(
                 messages,
-                options=ollama_options,
+                options=request_options,
                 reasoning=options.thinking_enabled,
-                **call_kwargs,
+                **request_kwargs,
             )
             return _normalize_message(response)
         except LLMError:
@@ -315,8 +356,7 @@ class BuiltinProvider(ModelProvider):
         self._lock = RLock()
 
     def list_models(self) -> list[ModelInfo]:
-        display = Path(self.config.model).stem if self.config.model else "内置模型"
-        return [ModelInfo(self.provider_id, self.model_id, display, supports_thinking=True)]
+        return [ModelInfo(self.provider_id, self.model_id, "内置模型", supports_thinking=True)]
 
     def _get_client(self) -> BaseChatModel:
         if self._client is not None:
@@ -417,7 +457,10 @@ class ModelManager:
             return self._provider(provider).list_models()
         models: list[ModelInfo] = []
         for item in self.providers.values():
-            models.extend(item.list_models())
+            try:
+                models.extend(item.list_models())
+            except LLMError:
+                continue
         return models
 
     def chat(
@@ -431,14 +474,20 @@ class ModelManager:
         provider = self._provider(selected.provider)
         raw_message = provider.invoke(messages, selected.model, generation)
         raw_content = _message_text(raw_message)
-        reasoning, content, incomplete = _split_reasoning(
+        metadata_reasoning = _message_reasoning(raw_message)
+        tagged_reasoning, content, incomplete = _split_reasoning(
             raw_content,
             thinking_started=(
                 generation.thinking_enabled and selected.provider == BuiltinProvider.provider_id
             ),
         )
+        reasoning = metadata_reasoning or tagged_reasoning
         if incomplete:
             raise ModelInvocationError("模型的思考过程未完成，请重试或增加 max_tokens")
+        if not content and reasoning:
+            raise ModelInvocationError(
+                "模型只返回了思考过程，没有返回最终回答；请关闭深度思考或增加 max_tokens"
+            )
         if not content:
             raise ModelInvocationError("模型没有返回最终回答")
         clean_message = AIMessage(content=content)
@@ -464,7 +513,7 @@ def _normalize_message(response: Any) -> AIMessage:
         message = response
     else:
         message = AIMessage(content=str(getattr(response, "content", response)))
-    if not _message_text(message).strip():
+    if not _message_text(message).strip() and not _message_reasoning(message):
         raise ModelInvocationError("模型返回了空内容")
     return message
 

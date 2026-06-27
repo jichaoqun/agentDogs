@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from threading import RLock
 from typing import Callable
 from uuid import uuid4
@@ -11,10 +11,11 @@ from langchain_core.messages import BaseMessage
 from agent.core.main_agent import MainAgent
 from agent.core.utils.llm_config import AppConfig
 from agent.core.utils.llm_models import ModelManager
+from agent.core.utils.time_utils import now_local
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return now_local()
 
 
 @dataclass(slots=True)
@@ -24,6 +25,9 @@ class ChatSession:
     agent: MainAgent
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
+    active_run_id: str | None = None
+    run_status: str = "idle"
+    cancelled_run_ids: set[str] = field(default_factory=set)
 
     def messages(self) -> list[BaseMessage]:
         return list(self.agent.history.messages)
@@ -64,3 +68,39 @@ class SessionManager:
             if first_message and session.title == "新会话":
                 session.title = first_message.strip().replace("\n", " ")[:24] or "新会话"
             session.updated_at = utcnow()
+
+    def begin_run(self, session: ChatSession) -> str:
+        with self._lock:
+            if session.active_run_id is not None:
+                raise RuntimeError("当前会话已有任务正在运行。")
+            run_id = uuid4().hex
+            session.active_run_id = run_id
+            session.run_status = "running"
+            return run_id
+
+    def cancel_run(self, session: ChatSession) -> bool:
+        with self._lock:
+            if session.active_run_id is None:
+                return False
+            run_id = session.active_run_id
+            session.cancelled_run_ids.add(run_id)
+            session.active_run_id = None
+            session.run_status = "cancelling"
+            session.updated_at = utcnow()
+            return True
+
+    def is_run_cancelled(self, session_id: str, run_id: str) -> bool:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return True
+            return run_id in session.cancelled_run_ids
+
+    def finish_run(self, session: ChatSession, run_id: str) -> bool:
+        with self._lock:
+            cancelled = run_id in session.cancelled_run_ids
+            session.cancelled_run_ids.discard(run_id)
+            if session.active_run_id == run_id:
+                session.active_run_id = None
+                session.run_status = "idle"
+            return cancelled

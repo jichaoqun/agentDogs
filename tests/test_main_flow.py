@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 
-from agent.core.main_agent import MainAgent
+from agent.core.main_agent import AgentInterruptError, AgentRunCancelled, MainAgent
+from agent.core.tools import create_default_tool_registry, create_file_tool_registry
 from agent.core.utils.llm_config import AppConfig, ProviderConfig, load_config
 from agent.core.utils.llm_models import (
     GenerationOptions,
@@ -35,7 +36,18 @@ class FakeProvider(ModelProvider):
         self.seen.append((messages, model, options))
         if self.fail:
             raise ModelInvocationError("offline")
+        if isinstance(self.reply, AIMessage):
+            return self.reply
         return AIMessage(content=self.reply)
+
+
+class FakeChatClient:
+    def __init__(self):
+        self.calls = []
+
+    def invoke(self, messages, **kwargs):
+        self.calls.append((messages, kwargs))
+        return AIMessage(content="ok")
 
 
 def make_config():
@@ -104,6 +116,340 @@ class MainFlowTests(unittest.TestCase):
 
         self.assertEqual(len(ollama.seen), 0)
 
+    def test_manager_extracts_ollama_native_thinking_metadata(self):
+        manager = ModelManager(make_config())
+        fake = FakeProvider(
+            ProviderConfig(),
+            reply=AIMessage(content="最终回答", additional_kwargs={"thinking": "内部思考"}),
+        )
+        manager.providers = {"ollama": fake}
+
+        result = manager.chat(
+            [],
+            ModelSelection("ollama", "demo"),
+            GenerationOptions(thinking_enabled=True),
+        )
+
+        self.assertEqual(result.content, "最终回答")
+        self.assertEqual(result.reasoning, "内部思考")
+
+    def test_manager_reports_thinking_only_ollama_response(self):
+        manager = ModelManager(make_config())
+        fake = FakeProvider(
+            ProviderConfig(),
+            reply=AIMessage(content="", additional_kwargs={"thinking": "还在思考"}),
+        )
+        manager.providers = {"ollama": fake}
+
+        with self.assertRaisesRegex(ModelInvocationError, "只返回了思考过程"):
+            manager.chat(
+                [],
+                ModelSelection("ollama", "demo"),
+                GenerationOptions(thinking_enabled=True),
+            )
+
+    def test_ollama_provider_passes_generation_params_as_options(self):
+        provider = OllamaProvider(ProviderConfig())
+        client = FakeChatClient()
+        provider._clients["demo"] = client
+
+        result = provider.invoke(
+            [],
+            "demo",
+            GenerationOptions(
+                temperature=0.4,
+                max_tokens=512,
+                thinking_enabled=True,
+                extra={"options": {"top_p": 0.8}},
+            ),
+        )
+
+        self.assertEqual(result.content, "ok")
+        kwargs = client.calls[0][1]
+        self.assertEqual(kwargs["options"]["temperature"], 0.4)
+        self.assertEqual(kwargs["options"]["num_predict"], 512)
+        self.assertEqual(kwargs["options"]["top_p"], 0.8)
+        self.assertTrue(kwargs["reasoning"])
+        self.assertNotIn("temperature", kwargs)
+        self.assertNotIn("num_predict", kwargs)
+
+    def test_simple_question_routes_to_simple_chat_agent(self):
+        manager, fake = make_manager(reply="你好，我在。")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("你好")
+
+        self.assertEqual(result.content, "你好，我在。")
+        self.assertEqual(agent.last_state["route"], "simple_chat")
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_cancelled_run_does_not_record_late_model_response(self):
+        manager = ModelManager(make_config())
+        cancelled = [False]
+
+        class CancellingProvider(FakeProvider):
+            def invoke(self, messages, model, options):
+                response = super().invoke(messages, model, options)
+                cancelled[0] = True
+                return response
+
+        fake = CancellingProvider(ProviderConfig(), reply="late answer")
+        manager.providers = {"fake": fake}
+        manager.default_selection = ModelSelection("fake", "demo")
+        agent = MainAgent(make_config(), manager)
+
+        with self.assertRaises(AgentRunCancelled):
+            agent.chat("你好", is_cancelled=lambda: cancelled[0])
+
+        self.assertEqual(agent.history.messages, [])
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_complex_project_task_routes_to_future_task_plan(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("帮我分析整个项目并生成报告")
+
+        self.assertEqual(agent.last_state["route"], "future_task")
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "plan_confirmation")
+        self.assertIn("执行计划", result.content)
+        self.assertEqual(agent.last_state["plan_status"], "pending")
+        self.assertEqual(len(fake.seen), 1)
+        self.assertEqual([item.type for item in agent.history.messages], ["human", "ai"])
+
+    def test_missing_file_target_routes_to_clarify(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("帮我处理这个文件")
+
+        self.assertEqual(agent.last_state["route"], "clarify")
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "clarification")
+        self.assertIn("需要补充信息", result.content)
+        questions = agent.last_state["clarification_questions"]
+        self.assertGreaterEqual(len(questions), 1)
+        self.assertTrue(all(item.question for item in questions))
+        self.assertTrue(all(item.allow_custom for item in questions))
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_file_list_routes_to_simple_task_without_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("hello", encoding="utf-8")
+            (root / "src").mkdir()
+            (root / "src" / "app.py").write_text("print('hi')", encoding="utf-8")
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            result = agent.chat("当前项目中有哪些文件")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("notes.md", result.content)
+        self.assertIn("src/", result.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "list_workspace_tree")
+        self.assertEqual(len(fake.seen), 0)
+        self.assertIsNone(agent.pending_interrupt)
+
+    def test_simple_task_after_chat_does_not_reuse_previous_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("hello", encoding="utf-8")
+            manager, fake = make_manager(reply="上一轮聊天回答")
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            first = agent.chat("你好", thread_id="same-session")
+            second = agent.chat("当前项目中有哪些文件", thread_id="same-session")
+
+        self.assertEqual(first.content, "上一轮聊天回答")
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("notes.md", second.content)
+        self.assertNotEqual(second.content, first.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "list_workspace_tree")
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_explicit_file_read_routes_to_simple_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "你好.md").write_text("hello file", encoding="utf-8")
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            result = agent.chat("读取 你好.md")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("hello file", result.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "read_file")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_workspace_search_routes_to_simple_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("important protein note", encoding="utf-8")
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(make_config(), manager, create_default_tool_registry(root))
+
+            result = agent.chat("搜索 workspace 中的 protein")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("notes.md", result.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "workspace_search")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_web_search_without_config_returns_controlled_message(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("联网查一下 langgraph")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("联网搜索未启用", result.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "web_search")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_complex_research_routes_to_future_task_plan(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("帮我调研 LangGraph 并整理对比")
+
+        self.assertEqual(agent.last_state["route"], "future_task")
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "plan_confirmation")
+        self.assertIn("执行计划", result.content)
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_search_after_chat_does_not_reuse_previous_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("important protein note", encoding="utf-8")
+            manager, fake = make_manager(reply="上一轮聊天回答")
+            agent = MainAgent(make_config(), manager, create_default_tool_registry(root))
+
+            first = agent.chat("你好", thread_id="search-session")
+            second = agent.chat("搜索 protein", thread_id="search-session")
+
+        self.assertEqual(first.content, "上一轮聊天回答")
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertIn("notes.md", second.content)
+        self.assertNotEqual(second.content, first.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "workspace_search")
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_high_risk_file_task_does_not_auto_execute(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "notes.md"
+            path.write_text("original", encoding="utf-8")
+            manager, fake = make_manager(reply="not-json")
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            result = agent.chat("修改 notes.md")
+            content = path.read_text(encoding="utf-8")
+
+        self.assertEqual(agent.last_state["route"], "future_task")
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "plan_confirmation")
+        self.assertIn("执行计划", result.content)
+        self.assertEqual(content, "original")
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_clarification_resume_continues_to_plan_confirmation(self):
+        manager, fake = make_manager(reply="not-json")
+        agent = MainAgent(make_config(), manager)
+        first = agent.chat("帮我处理这个文件", thread_id="s1")
+        interrupt_id = agent.last_state["interrupt"]["id"]
+
+        second = agent.resume(
+            interrupt_id,
+            {
+                "type": "clarification",
+                "answers": {
+                    "target": "workspace/demo.md",
+                    "action": "分析并总结",
+                    "output": "直接回复结论",
+                },
+            },
+            thread_id="s1",
+        )
+
+        self.assertIn("执行计划", second.content)
+        self.assertEqual(agent.last_state["route"], "future_task")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "plan_confirmation")
+        self.assertEqual(agent.last_state["plan_status"], "pending")
+        self.assertEqual([item.type for item in agent.history.messages], ["human", "ai", "human", "ai"])
+        self.assertEqual(len(fake.seen), 1)
+        self.assertIn("需要补充信息", first.content)
+
+    def test_plan_approval_and_wrong_interrupt_id(self):
+        manager, fake = make_manager(reply="not-json")
+        agent = MainAgent(make_config(), manager)
+        agent.chat("帮我分析整个项目并生成报告", thread_id="s2")
+        interrupt_id = agent.last_state["interrupt"]["id"]
+
+        with self.assertRaises(AgentInterruptError):
+            agent.resume("wrong", {"type": "plan_confirmation", "decision": "approve"}, thread_id="s2")
+
+        result = agent.resume(
+            interrupt_id,
+            {"type": "plan_confirmation", "decision": "approve"},
+            thread_id="s2",
+        )
+
+        self.assertIn("计划已确认", result.content)
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertEqual(agent.last_state["plan_status"], "approved")
+        self.assertIn(agent.last_state["task_status"], {"completed", "waiting_confirmation", "failed"})
+        self.assertTrue(agent.last_state["task_steps"])
+        self.assertIsNone(agent.pending_interrupt)
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_plan_cancel_completes_without_execution(self):
+        manager, fake = make_manager(reply="not-json")
+        agent = MainAgent(make_config(), manager)
+        agent.chat("帮我分析整个项目并生成报告", thread_id="s4")
+        interrupt_id = agent.last_state["interrupt"]["id"]
+
+        result = agent.resume(
+            interrupt_id,
+            {"type": "plan_confirmation", "decision": "cancel"},
+            thread_id="s4",
+        )
+
+        self.assertIn("已取消", result.content)
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertEqual(agent.last_state["plan_status"], "cancelled")
+        self.assertIsNone(agent.pending_interrupt)
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_plan_revision_generates_another_plan_interrupt(self):
+        manager, fake = make_manager(reply="not-json")
+        agent = MainAgent(make_config(), manager)
+        agent.chat("帮我分析整个项目并生成报告", thread_id="s3")
+        interrupt_id = agent.last_state["interrupt"]["id"]
+
+        result = agent.resume(
+            interrupt_id,
+            {
+                "type": "plan_confirmation",
+                "decision": "revise",
+                "feedback": "把测试验证提前。",
+            },
+            thread_id="s3",
+        )
+
+        self.assertIn("执行计划", result.content)
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "plan_confirmation")
+        self.assertEqual(agent.last_state["plan_status"], "pending")
+        self.assertEqual(len(fake.seen), 2)
+
     def test_agent_keeps_bounded_history(self):
         manager, fake = make_manager()
         agent = MainAgent(make_config(), manager)
@@ -130,6 +476,13 @@ providers:
   api: {enabled: true, api_key: '${TEST_AGENT_KEY}', model: demo, base_url: 'http://x/v1'}
   builtin: {enabled: true, model: '../model.gguf'}
   ollama: {enabled: false}
+search:
+  enabled: true
+  provider: duckduckgo
+  max_results: 7
+  fetch_pages: 2
+  timeout: 3
+  user_agent: AgentDogsTest/0.1
 """
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config" / "llm.yaml"
@@ -140,6 +493,12 @@ providers:
         self.assertEqual(config.providers["api"].api_key, "secret")
         self.assertEqual((config.default_provider, config.default_model), ("api", "demo"))
         self.assertTrue(Path(config.providers["builtin"].model).is_absolute())
+        self.assertTrue(config.search.enabled)
+        self.assertEqual(config.search.provider, "duckduckgo")
+        self.assertEqual(config.search.max_results, 7)
+        self.assertEqual(config.search.fetch_pages, 2)
+        self.assertEqual(config.search.timeout, 3.0)
+        self.assertEqual(config.search.user_agent, "AgentDogsTest/0.1")
 
 
 if __name__ == "__main__":

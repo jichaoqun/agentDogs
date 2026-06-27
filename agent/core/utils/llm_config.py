@@ -33,6 +33,16 @@ class ProviderConfig:
 
 
 @dataclass(slots=True)
+class SearchConfig:
+    enabled: bool = False
+    provider: str = "duckduckgo"
+    max_results: int = 5
+    fetch_pages: int = 3
+    timeout: float = 10.0
+    user_agent: str = "AgentDogs/0.1"
+
+
+@dataclass(slots=True)
 class AppConfig:
     system_prompt: str
     max_history_messages: int
@@ -40,6 +50,7 @@ class AppConfig:
     source: Path
     default_provider: str = "builtin"
     default_model: str = "builtin"
+    search: SearchConfig = field(default_factory=SearchConfig)
 
 
 def _expand_env(value: Any) -> Any:
@@ -79,6 +90,20 @@ def _provider_config(name: str, data: dict[str, Any], source: Path) -> ProviderC
         temperature=float(data.get("temperature", 0.7)),
         max_tokens=int(data.get("max_tokens", 1024)),
         extra={key: value for key, value in data.items() if key not in known},
+    )
+
+
+def _search_config(data: dict[str, Any] | None) -> SearchConfig:
+    source = data or {}
+    if not isinstance(source, dict):
+        raise ConfigError("search 必须是对象")
+    return SearchConfig(
+        enabled=bool(source.get("enabled", False)),
+        provider=str(source.get("provider", "duckduckgo")),
+        max_results=max(1, min(int(source.get("max_results", 5)), 20)),
+        fetch_pages=max(0, min(int(source.get("fetch_pages", 3)), 10)),
+        timeout=max(1.0, min(float(source.get("timeout", 10.0)), 60.0)),
+        user_agent=str(source.get("user_agent", "AgentDogs/0.1")),
     )
 
 
@@ -127,4 +152,5 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         source=source,
         default_provider=default_provider,
         default_model=default_model,
+        search=_search_config(raw.get("search")),
     )
