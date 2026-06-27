@@ -22,6 +22,8 @@ class ToolAndAgentTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "notes.md").write_text("hello workspace\nimportant protein note", encoding="utf-8")
+        (self.root / "add_new.md").write_text("# 新增的测试说明", encoding="utf-8")
+        (self.root / "readme.md").write_text("默认文件存储目录", encoding="utf-8")
         (self.root / "src").mkdir()
         (self.root / "src" / "app.py").write_text("print('hi')", encoding="utf-8")
         self.registry = create_default_tool_registry(self.root)
@@ -167,6 +169,24 @@ class ToolAndAgentTests(unittest.TestCase):
         self.assertEqual(write.status, "waiting_confirmation")
         self.assertEqual((self.root / "notes.md").read_text(encoding="utf-8").splitlines()[0], "hello workspace")
 
+    def test_file_agent_extracts_paths_from_chinese_read_requests(self):
+        agent = FileAgent(self.registry)
+
+        cases = [
+            ("帮我查看add_new.md中的内容", "add_new.md", "新增的测试说明"),
+            ("帮我查看readme.md中的内容", "readme.md", "默认文件存储目录"),
+            ("add_new.md中的内容是什么", "add_new.md", "新增的测试说明"),
+            ("读取 add_new.md", "add_new.md", "新增的测试说明"),
+            ("查看 add_new.md", "add_new.md", "新增的测试说明"),
+            ("帮我查看 `add_new.md` 中的内容", "add_new.md", "新增的测试说明"),
+        ]
+        for prompt, path, expected in cases:
+            with self.subTest(prompt=prompt):
+                result = agent.handle_step(prompt)
+                self.assertTrue(result.ok)
+                self.assertEqual(result.tool_calls[0]["payload"]["path"], path)
+                self.assertIn(expected, result.content)
+
     def test_simple_task_agent_executes_low_risk_file_tools(self):
         agent = SimpleTaskAgent(self.registry, SearchAgent(self.registry))
 
@@ -184,6 +204,24 @@ class ToolAndAgentTests(unittest.TestCase):
         self.assertTrue(search.ok)
         self.assertIn("notes.md", search.content)
         self.assertEqual(search.tool_calls[0]["tool"], "workspace_search")
+
+    def test_simple_task_agent_extracts_paths_from_chinese_read_requests(self):
+        agent = SimpleTaskAgent(self.registry, SearchAgent(self.registry))
+
+        cases = [
+            ("帮我查看add_new.md中的内容", "add_new.md", "新增的测试说明"),
+            ("帮我查看readme.md中的内容", "readme.md", "默认文件存储目录"),
+            ("add_new.md中的内容是什么", "add_new.md", "新增的测试说明"),
+            ("读取 add_new.md", "add_new.md", "新增的测试说明"),
+            ("查看 add_new.md", "add_new.md", "新增的测试说明"),
+            ("帮我查看 `add_new.md` 中的内容", "add_new.md", "新增的测试说明"),
+        ]
+        for prompt, path, expected in cases:
+            with self.subTest(prompt=prompt):
+                result = agent.handle(prompt)
+                self.assertTrue(result.ok)
+                self.assertEqual(result.tool_calls[0]["payload"]["path"], path)
+                self.assertIn(expected, result.content)
 
     def test_simple_task_agent_defers_high_risk_tools(self):
         agent = SimpleTaskAgent(self.registry)

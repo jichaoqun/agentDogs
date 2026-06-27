@@ -9,7 +9,7 @@ from unittest.mock import patch
 from langchain_core.messages import AIMessage
 
 from agent.core.main_agent import AgentInterruptError, AgentRunCancelled, MainAgent
-from agent.core.tools import create_default_tool_registry, create_file_tool_registry
+from agent.core.tools import ToolRegistry, ToolResult, ToolSpec, create_default_tool_registry, create_file_tool_registry
 from agent.core.utils.llm_config import AppConfig, ProviderConfig, load_config
 from agent.core.utils.llm_models import (
     GenerationOptions,
@@ -271,6 +271,55 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "list_workspace_tree")
         self.assertEqual(len(fake.seen), 1)
 
+    def test_agent_metadata_is_not_replayed_as_model_tool_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("hello", encoding="utf-8")
+            manager, fake = make_manager(reply="chat answer")
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            agent.chat("璇诲彇 notes.md", thread_id="metadata-session")
+            result = agent.chat("浣犲ソ", thread_id="metadata-session")
+
+        self.assertEqual(result.content, "chat answer")
+        messages = fake.seen[-1][0]
+        ai_messages = [item for item in messages if item.type == "ai"]
+        self.assertTrue(ai_messages)
+        for message in ai_messages:
+            self.assertNotIn("tool_calls", getattr(message, "additional_kwargs", {}) or {})
+            self.assertNotIn("agent_dogs", getattr(message, "response_metadata", {}) or {})
+
+    def test_simple_chat_returns_agent_flow(self):
+        manager, fake = make_manager(reply="chat answer")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("hello", thread_id="flow-chat")
+
+        self.assertEqual(result.content, "chat answer")
+        flow = agent.response_metadata()["agent_flow"]
+        self.assertEqual(flow["mainAgent"]["name"], "MainAgent")
+        self.assertEqual(flow["mainAgent"]["route"], "simple_chat")
+        self.assertEqual(flow["finalOutput"], "chat answer")
+        self.assertTrue(any(item["name"] == "SimpleChatAgent" for item in flow["subAgents"]))
+        self.assertEqual(flow["tools"], [])
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_file_read_returns_layered_agent_flow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "notes.md").write_text("hello file", encoding="utf-8")
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            result = agent.chat("读取 notes.md", thread_id="flow-file")
+
+        self.assertIn("hello file", result.content)
+        flow = agent.response_metadata()["agent_flow"]
+        self.assertEqual(flow["mainAgent"]["route"], "simple_task")
+        self.assertTrue(any(item["name"] == "FileAgent" for item in flow["subAgents"]))
+        self.assertTrue(any(item["name"] == "read_file" for item in flow["tools"]))
+        self.assertEqual(len(fake.seen), 0)
+
     def test_explicit_file_read_routes_to_simple_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -299,6 +348,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["status"], "completed")
         self.assertIn("notes.md", result.content)
         self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "workspace_search")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "search_agent")
         self.assertEqual(len(fake.seen), 0)
 
     def test_web_search_without_config_returns_controlled_message(self):
@@ -311,6 +361,101 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["status"], "completed")
         self.assertIn("联网搜索未启用", result.content)
         self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "web_search")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "search_agent")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_weather_search_builds_task_brief_and_uses_web_search(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("帮我搜素北京今天的天气")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        brief = agent.last_state["task_brief"]
+        self.assertEqual(brief.intent, "weather_lookup")
+        self.assertEqual(brief.delegate_to, "search_agent")
+        self.assertEqual(brief.context["location"], "北京")
+        self.assertEqual(brief.context["relative_time"], "今天")
+        self.assertEqual(brief.source_policy, "requires_fresh_external_info")
+        self.assertIn("联网搜索未启用", result.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "web_search")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_weather_search_final_answer_is_synthesized(self):
+        registry = ToolRegistry()
+
+        def fake_web_search(payload):
+            return ToolResult.success(
+                "联网搜索找到 2 个结果。",
+                data={
+                    "query": payload["query"],
+                    "results": [
+                        {
+                            "title": "北京天气预报_2026年06月28日北京市天气",
+                            "source": "www.tianqi.com",
+                            "url": "https://www.tianqi.com/tianqi/beijing/20260628.html",
+                            "summary": "北京 2026年06月28日 21~29° 小雨 44 优",
+                            "content_excerpt": "当前位置 : 北京天气预报北京2026年06月28日天气 21~29° 小雨 44 优",
+                            "fetched": True,
+                        },
+                        {
+                            "title": "北京天气预报",
+                            "source": "www.weather.com.cn",
+                            "url": "https://www.weather.com.cn/weather/101010100.shtml",
+                            "summary": "北京天气预报，及时准确发布中央气象台天气信息。",
+                        },
+                    ],
+                },
+            )
+
+        registry.register(
+            ToolSpec(
+                name="web_search",
+                description="fake web search",
+                input_schema={},
+                capabilities=["search.web"],
+            ),
+            fake_web_search,
+        )
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager, registry)
+
+        result = agent.chat("今天北京的天气怎么样")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertIn("北京", result.content)
+        self.assertIn("2026-06-", result.content)
+        self.assertIn("小雨", result.content)
+        self.assertIn("21~29℃", result.content)
+        self.assertIn("空气质量优", result.content)
+        self.assertNotIn("联网搜索找到 2 个结果", result.content)
+        self.assertTrue(any(item["stage"] == "MainAgent.synthesize_result" for item in agent.last_state["debug_trace"]))
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "web_search")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_weather_without_location_asks_for_clarification(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("今天天气怎么样")
+
+        self.assertEqual(agent.last_state["route"], "clarify")
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertIn("需要补充信息", result.content)
+        self.assertEqual(agent.last_state["clarification_questions"][0].id, "location")
+        self.assertEqual(agent.last_state["task_brief"].intent, "weather_lookup")
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_dynamic_sports_search_uses_web_search_not_workspace(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("搜索足球的相关知识，尤其是今年的比赛信息")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "search_agent")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "web_search")
+        self.assertIn("联网搜索未启用", result.content)
         self.assertEqual(len(fake.seen), 0)
 
     def test_complex_research_routes_to_future_task_plan(self):

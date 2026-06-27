@@ -6,7 +6,7 @@ default_model:
 history:
   max_messages: 40
 search:
-  enabled: false
+  enabled: true
   provider: duckduckgo
   max_results: 5
   fetch_pages: 3
@@ -15,10 +15,10 @@ search:
 providers:
   api:
     enabled: true
-    base_url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY:-}
-    model: gpt-4.1-mini
-    models: [gpt-4.1-mini]
+    base_url: https://api.deepseek.com
+    api_key: sk-fc0fb0e6300a495eb75dfd35b3375319
+    model: deepseek-v4-flash
+    models: [deepseek-v4-flash, deepseek-v4-pro]
     timeout: 60
     temperature: 0.7
     max_tokens: 256000

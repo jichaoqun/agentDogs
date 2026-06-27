@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - requirements.txt installs langgraph.
     interrupt = None
 
 from .sub_agents import SimpleChatAgent, SimpleTaskAgent, SubAgentRegistry, TaskAgent, create_default_sub_agent_registry
-from .state import AgentState, ClarificationQuestion, Route, TaskAnalysis, TaskPlan
+from .state import AgentState, ClarificationQuestion, Route, TaskAnalysis, TaskBrief, TaskPlan
 from .tools import ToolRegistry, create_default_tool_registry
 from .utils.llm_config import AppConfig
 from .utils.llm_models import (
@@ -110,6 +110,64 @@ WEB_SEARCH_MARKERS = ("联网", "网上", "网络", "互联网", "web", "Web")
 RESEARCH_MARKERS = ("调研", "研究")
 RESEARCH_COMPLEX_MARKERS = ("整理", "对比", "报告", "分析", "方案", "总结")
 HIGH_RISK_TOOL_MARKERS = ("写入", "保存", "修改", "改写", "删除", "重命名", "创建", "新增", "覆盖", "移动", "上传", "下载")
+REALTIME_MARKERS = ("今天", "现在", "实时", "最新", "今年", "新闻", "天气", "比赛", "赛程", "价格", "预报")
+WEATHER_MARKERS = ("天气", "气温", "降雨", "下雨", "预报", "空气质量")
+COMMON_LOCATION_MARKERS = ("北京", "上海", "广州", "深圳", "杭州", "南京", "成都", "重庆", "天津", "武汉", "西安")
+SEARCH_TYPO_MAP = {
+    "搜素": "搜索",
+    "查讯": "查询",
+}
+
+
+AGENT_METADATA_KEY = "agent_dogs"
+APP_METADATA_KEYS = {
+    "created_at",
+    "status",
+    "interrupt",
+    "plan_status",
+    "task",
+    "steps",
+    "tool_calls",
+    "debug_trace",
+    "agent_flow",
+    "task_brief",
+    "route",
+    "complexity",
+    "clarification",
+    "plan_steps",
+    "plan",
+}
+MAX_DEBUG_TEXT = 900
+MAX_DEBUG_EVENTS = 80
+
+
+def _agent_response_metadata(message: AIMessage | HumanMessage) -> dict[str, Any]:
+    response_metadata = getattr(message, "response_metadata", {}) or {}
+    metadata = response_metadata.get(AGENT_METADATA_KEY)
+    if isinstance(metadata, dict):
+        return metadata
+    legacy = getattr(message, "additional_kwargs", {}) or {}
+    return legacy if isinstance(legacy, dict) else {}
+
+
+def _safe_additional_kwargs(message: AIMessage) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in (getattr(message, "additional_kwargs", {}) or {}).items()
+        if key not in APP_METADATA_KEYS and not (key == "tool_calls" and not value)
+    }
+
+
+def _with_agent_metadata(message: AIMessage | HumanMessage, metadata: dict[str, Any]) -> AIMessage | HumanMessage:
+    response_metadata = dict(getattr(message, "response_metadata", {}) or {})
+    response_metadata[AGENT_METADATA_KEY] = metadata
+    if isinstance(message, AIMessage):
+        return AIMessage(
+            content=message.content,
+            additional_kwargs=_safe_additional_kwargs(message),
+            response_metadata=response_metadata,
+        )
+    return HumanMessage(content=message.content, response_metadata=response_metadata)
 
 
 class AgentInterruptError(RuntimeError):
@@ -128,6 +186,8 @@ class MainAgent:
     history: InMemoryChatMessageHistory = field(default_factory=InMemoryChatMessageHistory)
     simple_chat_agent: SimpleChatAgent = field(init=False, repr=False)
     simple_task_agent: SimpleTaskAgent = field(init=False, repr=False)
+    search_agent: Any = field(init=False, repr=False)
+    file_agent: Any = field(init=False, repr=False)
     sub_agent_registry: SubAgentRegistry = field(init=False, repr=False)
     task_agent: TaskAgent = field(init=False, repr=False)
     last_state: AgentState | None = field(default=None, init=False, repr=False)
@@ -142,6 +202,8 @@ class MainAgent:
         self.simple_chat_agent = SimpleChatAgent(self.config, models, self.history)
         self.sub_agent_registry = create_default_sub_agent_registry(self.tool_registry, self.simple_chat_agent)
         self.simple_task_agent = self.sub_agent_registry.get("simple_task").agent
+        self.search_agent = self.sub_agent_registry.get("search_agent").agent
+        self.file_agent = self.sub_agent_registry.get("file_agent").agent
         self.task_agent = self.sub_agent_registry.get("task_agent").agent
         self._graph = self._build_graph()
 
@@ -184,6 +246,9 @@ class MainAgent:
             "task_status": "",
             "task_steps": [],
             "tool_calls": [],
+            "debug_trace": [],
+            "agent_flow": {},
+            "task_brief": None,  # type: ignore[typeddict-item]
         }
         result_state = self._graph.invoke(initial_state, self._thread_config(thread_id))
         return self._handle_graph_result(
@@ -324,7 +389,7 @@ class MainAgent:
             "payload": payload,
         }
 
-        message = AIMessage(content=content, additional_kwargs=self._message_metadata(state))
+        message = _with_agent_metadata(AIMessage(content=content), self._message_metadata(state))
         if user_record:
             self._record_history(user_record, message)
         selected = self._selected_model(state.get("selection"))
@@ -397,12 +462,30 @@ class MainAgent:
                 confidence=0.3,
                 reason="任务解析失败，回退为普通对话。",
             )
+        brief = self._build_task_brief(text, analysis, state)
+        output = {
+            "intent": analysis.intent,
+            "complexity": analysis.complexity,
+            "route_hint": analysis.route_hint,
+            "tool_intents": analysis.tool_intents,
+            "reason": analysis.reason,
+            "task_brief": brief.model_dump(),
+        }
         return {
             "task_analysis": analysis,
+            "task_brief": brief,
             "missing_info": analysis.missing_info,
             "clarification_questions": self._clarification_questions(analysis),
             "plan_steps": analysis.suggested_steps,
             "errors": errors,
+            "debug_trace": self._debug_trace(
+                state,
+                stage="MainAgent.analyze_task",
+                agent="MainAgent",
+                input=state["user_input"],
+                output=output,
+                status="completed",
+            ),
         }
 
     def _route_task(self, state: AgentState) -> AgentState:
@@ -416,7 +499,18 @@ class MainAgent:
             route = "future_task"
         else:
             route = "simple_chat"
-        return {"route": route}
+        return {
+            "route": route,
+            "debug_trace": self._debug_trace(
+                state,
+                stage="MainAgent.route_task",
+                agent="MainAgent",
+                input=getattr(analysis, "complexity", ""),
+                output={"route": route},
+                status="completed",
+                route=route,
+            ),
+        }
 
     def _route_from_state(self, state: AgentState) -> Route:
         return state.get("route", "simple_chat")
@@ -428,6 +522,505 @@ class MainAgent:
             return "execute_task"
         return "finalize"
 
+    def _build_task_brief(self, text: str, analysis: TaskAnalysis, state: AgentState) -> TaskBrief:
+        normalized = self._normalize_user_input(text)
+        context = self._brief_context(normalized, state)
+        delegate_to = self._delegate_for_analysis(analysis, normalized, context)
+        source_policy = "requires_fresh_external_info" if self._requires_fresh_external_info(normalized) else "not_required"
+        if context.get("source_scope") == "workspace":
+            source_policy = "workspace_only"
+        return TaskBrief(
+            intent=self._brief_intent(normalized, analysis),
+            user_goal=text.strip(),
+            normalized_input=normalized,
+            context=context,
+            constraints=self._brief_constraints(normalized, source_policy),
+            source_policy=source_policy,
+            expected_output=self._brief_expected_output(normalized, analysis),
+            delegate_to=delegate_to,
+            confidence=analysis.confidence,
+        )
+
+    def _normalize_user_input(self, text: str) -> str:
+        normalized = text.strip()
+        for source, target in SEARCH_TYPO_MAP.items():
+            normalized = normalized.replace(source, target)
+        return re.sub(r"\s+", " ", normalized)
+
+    def _brief_context(self, text: str, state: AgentState) -> dict[str, Any]:
+        context: dict[str, Any] = {}
+        current_date = str(state.get("current_time") or "").split("T", 1)[0]
+        if "今天" in text and current_date:
+            context["relative_time"] = "今天"
+            context["date"] = current_date
+        if "今年" in text and current_date:
+            context["relative_time"] = "今年"
+            context["year"] = current_date[:4]
+        location = self._extract_location(text)
+        if location:
+            context["location"] = location
+        path = self._extract_path_for_brief(text)
+        if path:
+            context["path"] = path
+        if self._requires_fresh_external_info(text):
+            context["source_scope"] = "web"
+        elif any(marker in text for marker in SIMPLE_FILE_SCOPE_MARKERS) or "文件" in text or "项目" in text:
+            context["source_scope"] = "workspace"
+        if self._is_weather_request(text):
+            context["domain"] = "weather"
+            pieces = [location, context.get("date"), "天气 预报"]
+            context["query"] = " ".join(str(item) for item in pieces if item)
+        elif self._requires_fresh_external_info(text):
+            context["query"] = text
+        return {key: value for key, value in context.items() if value not in (None, "", [], {})}
+
+    def _delegate_for_analysis(self, analysis: TaskAnalysis, text: str, context: dict[str, Any]) -> str:
+        if analysis.route_hint == "simple_chat":
+            return "simple_chat"
+        if analysis.route_hint in {"clarify", "future_task"}:
+            return analysis.route_hint
+        if self._is_search_delegate(text, context):
+            return "search_agent"
+        if "list_workspace_tree" in analysis.tool_intents:
+            return "simple_task"
+        if context.get("path") or analysis.tool_intents and any(intent in analysis.tool_intents for intent in ("read_file", "file_info", "list_workspace_tree")):
+            return "file_agent"
+        if "workspace_search" in analysis.tool_intents:
+            return "search_agent"
+        return "simple_task"
+
+    def _brief_intent(self, text: str, analysis: TaskAnalysis) -> str:
+        if self._is_weather_request(text):
+            return "weather_lookup"
+        if self._is_search_delegate(text, {}):
+            return "search"
+        return analysis.task_kind or "chat"
+
+    def _brief_constraints(self, text: str, source_policy: str) -> list[str]:
+        constraints: list[str] = []
+        if source_policy == "requires_fresh_external_info":
+            constraints.append("需要使用新鲜外部信息，不能只依赖模型历史知识。")
+        if any(marker in text for marker in HIGH_RISK_TOOL_MARKERS):
+            constraints.append("涉及高风险操作时必须先请求用户确认。")
+        return constraints
+
+    def _brief_expected_output(self, text: str, analysis: TaskAnalysis) -> str:
+        if self._is_weather_request(text):
+            return "给出简洁天气结论，并说明来源或无法确认的原因。"
+        if self._is_search_delegate(text, {}):
+            return "返回精炼搜索结论、关键发现和证据来源。"
+        if analysis.route_hint == "simple_chat":
+            return "直接回答用户问题。"
+        return "返回任务执行摘要、关键结果和必要的下一步。"
+
+    def _extract_location(self, text: str) -> str:
+        for location in COMMON_LOCATION_MARKERS:
+            if location in text:
+                return location
+        return ""
+
+    def _extract_path_for_brief(self, text: str) -> str:
+        match = PATH_HINT.search(text)
+        if not match:
+            return ""
+        raw = match.group(1).strip("`") if match.group(1) else match.group(0).strip("`")
+        parts = [item.strip(" `，。；;：:?？!！") for item in raw.split() if item.strip()]
+        candidate = parts[-1] if parts else raw
+        for prefix in ("请帮我查看", "请帮我读取", "帮我查看", "帮我读取", "请查看", "请读取", "查看", "读取", "打开", "预览", "帮我", "请"):
+            if candidate.startswith(prefix):
+                candidate = candidate[len(prefix):].strip(" `，。；;：:?？!！")
+        for suffix in ("中的内容是什么", "里面的内容是什么", "的内容是什么", "中的内容", "里面的内容", "的内容", "内容是什么"):
+            if candidate.endswith(suffix):
+                candidate = candidate[:-len(suffix)].strip(" `，。；;：:?？!！")
+        return candidate
+
+    def _requires_fresh_external_info(self, text: str) -> bool:
+        return any(marker in text for marker in REALTIME_MARKERS)
+
+    def _is_weather_request(self, text: str) -> bool:
+        return any(marker in text for marker in WEATHER_MARKERS)
+
+    def _is_search_delegate(self, text: str, context: dict[str, Any]) -> bool:
+        if context.get("source_scope") == "web":
+            return True
+        return self._requires_fresh_external_info(text) or any(marker in text for marker in SIMPLE_FILE_SEARCH_MARKERS + ("查询", "查一下", "搜一下", "搜索"))
+
+    def _debug_trace(
+        self,
+        state: AgentState,
+        *,
+        stage: str,
+        agent: str,
+        input: Any | None = None,
+        output: Any | None = None,
+        status: str | None = None,
+        route: str | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        error: str | None = None,
+    ) -> list[dict[str, Any]]:
+        trace = list(state.get("debug_trace") or [])
+        event = {
+            "stage": stage,
+            "agent": agent,
+            "input": self._debug_value(input),
+            "output": self._debug_value(output),
+            "status": status,
+            "route": route,
+            "tool_calls": self._debug_value(tool_calls or []),
+            "error": error,
+        }
+        trace.append({key: value for key, value in event.items() if value not in (None, [], {})})
+        return trace[-MAX_DEBUG_EVENTS:]
+
+    def _tool_debug_events(self, state: AgentState, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        trace = list(state.get("debug_trace") or [])
+        for call in tool_calls:
+            trace.append({
+                "stage": "ToolRegistry.call",
+                "agent": "ToolRegistry",
+                "input": self._debug_value(call.get("payload")),
+                "output": {"tool": call.get("tool"), "ok": call.get("ok")},
+                "status": "completed" if call.get("ok") else "failed",
+                "tool_calls": [self._debug_value(call)],
+            })
+        return trace[-MAX_DEBUG_EVENTS:]
+
+    def _debug_value(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value if len(value) <= MAX_DEBUG_TEXT else f"{value[:MAX_DEBUG_TEXT]}..."
+        if isinstance(value, (int, float, bool)):
+            return value
+        if isinstance(value, list):
+            return [self._debug_value(item) for item in value[:20]]
+        if isinstance(value, tuple):
+            return [self._debug_value(item) for item in value[:20]]
+        if isinstance(value, dict):
+            return {
+                str(key): self._debug_value(item)
+                for key, item in list(value.items())[:30]
+                if key not in {"content"}
+            }
+        if hasattr(value, "model_dump"):
+            return self._debug_value(value.model_dump())
+        return self._debug_value(str(value))
+
+    def _sub_agent_output(self, result: Any) -> dict[str, Any]:
+        return {
+            "content": getattr(result, "content", ""),
+            "summary": getattr(result, "summary", ""),
+            "findings": getattr(result, "findings", []),
+            "evidence": getattr(result, "evidence", []),
+            "next_actions": getattr(result, "next_actions", []),
+            "confidence": getattr(result, "confidence", None),
+            "error": getattr(result, "error", None),
+        }
+
+    def _build_agent_flow(self, state: AgentState) -> dict[str, Any]:
+        trace = [item for item in state.get("debug_trace") or [] if isinstance(item, dict)]
+        analysis = state.get("task_analysis")
+        brief = state.get("task_brief")
+        route = state.get("route")
+        final_output = self._debug_value(state.get("final_response", ""))
+        main_events = [item for item in trace if item.get("agent") == "MainAgent"]
+        main_agent: dict[str, Any] = {
+            "name": "MainAgent",
+            "input": self._debug_value(state.get("user_input", "")),
+            "analysis": self._debug_value(analysis),
+            "taskBrief": self._debug_value(brief),
+            "complexity": getattr(analysis, "complexity", None),
+            "route": route,
+            "routeReason": getattr(analysis, "reason", None),
+            "status": state.get("status", "completed"),
+            "planStatus": state.get("plan_status"),
+            "plan": self._debug_value({
+                "summary": state.get("plan_summary"),
+                "steps": state.get("plan_steps"),
+                "risks": state.get("plan_risks"),
+            }) if state.get("plan_steps") or state.get("plan_summary") else None,
+            "finalOutput": final_output,
+            "events": main_events,
+        }
+        main_agent = {key: value for key, value in main_agent.items() if value not in (None, [], {})}
+
+        sub_agents = self._agent_flow_sub_agents(state, trace)
+        tools = self._agent_flow_tools(state, trace)
+        return {
+            "mainAgent": main_agent,
+            "subAgents": sub_agents,
+            "tools": tools,
+            "finalOutput": final_output,
+            "errors": self._debug_value(state.get("errors") or []),
+        }
+
+    def _agent_flow_sub_agents(self, state: AgentState, trace: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        sub_agents: list[dict[str, Any]] = []
+        for event in trace:
+            agent_name = str(event.get("agent") or "")
+            if not agent_name or agent_name in {"MainAgent", "ToolRegistry"}:
+                continue
+            sub_agents.append(self._agent_flow_sub_agent_event(agent_name, event))
+
+        for step in state.get("task_steps") or []:
+            if not isinstance(step, dict):
+                continue
+            agent_name = str(step.get("assigned_agent") or "")
+            if not agent_name:
+                continue
+            payload = self._agent_flow_sub_agent_event(
+                agent_name,
+                {
+                    "input": {"step": step.get("title"), "index": step.get("index")},
+                    "output": step.get("result"),
+                    "status": step.get("status"),
+                    "error": step.get("error"),
+                    "tool_calls": step.get("tool_calls") or [],
+                },
+            )
+            payload["stepIndex"] = step.get("index")
+            sub_agents.append(payload)
+        return sub_agents[:40]
+
+    def _agent_flow_sub_agent_event(self, agent_name: str, event: dict[str, Any]) -> dict[str, Any]:
+        spec = self._sub_agent_spec(agent_name)
+        payload: dict[str, Any] = {
+            "name": agent_name,
+            "type": spec.get("name") if spec else agent_name,
+            "description": spec.get("description") if spec else "",
+            "capabilitySpec": spec,
+            "capabilities": spec.get("capabilities") if spec else [],
+            "input": self._debug_value(event.get("input")),
+            "output": self._debug_value(event.get("output")),
+            "status": event.get("status"),
+            "error": event.get("error"),
+            "relatedToolCalls": self._debug_value(event.get("tool_calls") or []),
+        }
+        return {key: value for key, value in payload.items() if value not in (None, [], {})}
+
+    def _agent_flow_tools(self, state: AgentState, trace: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        tools: list[dict[str, Any]] = []
+        for event in trace:
+            if event.get("agent") != "ToolRegistry":
+                continue
+            output = event.get("output") if isinstance(event.get("output"), dict) else {}
+            call = (event.get("tool_calls") or [{}])[0]
+            if not isinstance(call, dict):
+                call = {}
+            tools.append({
+                "name": output.get("tool") or call.get("tool"),
+                "input": self._debug_value(event.get("input")),
+                "output": self._debug_value(output),
+                "ok": output.get("ok") if "ok" in output else call.get("ok"),
+                "status": event.get("status"),
+                "error": event.get("error") or call.get("error"),
+            })
+        if tools:
+            return [{key: value for key, value in item.items() if value not in (None, [], {})} for item in tools[:40]]
+        return [
+            {
+                "name": call.get("tool"),
+                "input": self._debug_value(call.get("payload")),
+                "ok": call.get("ok"),
+                "status": "completed" if call.get("ok") else "failed",
+                "error": call.get("error"),
+            }
+            for call in (state.get("tool_calls") or [])[:40]
+            if isinstance(call, dict)
+        ]
+
+    def _sub_agent_spec(self, agent_name: str) -> dict[str, Any] | None:
+        normalized = agent_name.replace("Agent", "").replace("_", "").lower()
+        for spec in self.sub_agent_registry.list_specs():
+            names = {
+                spec.name.replace("_", "").lower(),
+                spec.name.lower(),
+                "".join(part.title() for part in spec.name.split("_")).lower(),
+            }
+            if normalized in names or agent_name.lower() in names:
+                return {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "handles": spec.handles,
+                    "doesNotHandle": spec.does_not_handle,
+                    "capabilities": spec.capabilities,
+                    "tools": spec.tools,
+                    "inputContract": spec.input_contract,
+                    "outputContract": spec.output_contract,
+                    "riskLevel": spec.risk_level,
+                    "examples": spec.examples,
+                }
+        return None
+
+    def _synthesize_task_result(self, state: AgentState, result: Any, agent_name: str) -> str:
+        brief = state.get("task_brief")
+        if not getattr(result, "ok", False):
+            return str(getattr(result, "error", None) or getattr(result, "content", "") or "任务执行失败。")
+
+        if agent_name == "SearchAgent":
+            return self._synthesize_search_result(brief if isinstance(brief, TaskBrief) else None, result)
+        return str(getattr(result, "content", "") or getattr(result, "summary", "") or "任务已完成。")
+
+    def _synthesize_search_result(self, brief: TaskBrief | None, result: Any) -> str:
+        content = str(getattr(result, "content", "") or "")
+        summary = str(getattr(result, "summary", "") or "")
+        data = getattr(result, "data", None) or {}
+        results = data.get("results", []) if isinstance(data, dict) else []
+        if not results:
+            return summary or content or "没有找到可汇总的搜索结果。"
+
+        intent = brief.intent if brief else ""
+        if intent == "weather_lookup":
+            return self._synthesize_weather_result(brief, results, summary or content)
+
+        findings = getattr(result, "findings", None) or self._findings_from_raw_results(results)
+        lines = [f"我找到 {len(results)} 条相关结果，先给你一个简要汇总："]
+        for index, item in enumerate(findings[:3], start=1):
+            title = str(item.get("title") or "结果").strip()
+            item_summary = str(item.get("summary") or "").strip()
+            source = str(item.get("source") or item.get("url") or item.get("path") or "").strip()
+            detail = f"{index}. {title}"
+            if item_summary:
+                detail = f"{detail}：{item_summary[:160]}"
+            if source:
+                detail = f"{detail}（来源：{source}）"
+            lines.append(detail)
+        if len(results) > 3:
+            lines.append("更多原始搜索结果可以在调试信息里查看。")
+        return "\n".join(lines)
+
+    def _synthesize_weather_result(self, brief: TaskBrief | None, results: list[dict[str, Any]], fallback: str) -> str:
+        context = brief.context if brief else {}
+        location = str(context.get("location") or "").strip() or "目标地区"
+        date = str(context.get("date") or context.get("relative_time") or "").strip()
+        best = self._best_weather_result(results, date)
+        combined = self._combined_result_text([best] + [item for item in results if item is not best])
+        condition = self._extract_weather_condition(combined)
+        temperature = self._extract_temperature_range(combined)
+        air_quality = self._extract_air_quality(combined)
+        source = str(best.get("source") or "").strip()
+        url = str(best.get("url") or best.get("path") or "").strip()
+
+        pieces = []
+        if condition:
+            pieces.append(condition)
+        if temperature:
+            pieces.append(f"气温约 {temperature}")
+        if air_quality:
+            pieces.append(f"空气质量{air_quality}")
+
+        when = f"{date} " if date else ""
+        if pieces:
+            answer = f"{location}{when}天气：{'，'.join(pieces)}。"
+        else:
+            short = self._compact_search_excerpt(best) or fallback
+            answer = f"我找到了{location}{when}天气相关结果，但没有稳定提取出完整天气字段。{short[:220]}"
+
+        if source or url:
+            answer = f"{answer}\n来源：{source or '搜索结果'}{f'，{url}' if url else ''}"
+        answer = f"{answer}\n原始搜索结果已保留在调试信息中。"
+        return answer
+
+    def _best_weather_result(self, results: list[dict[str, Any]], date: str = "") -> dict[str, Any]:
+        if not results:
+            return {}
+        compact_date = date.replace("-", "")
+        zh_date = ""
+        if re.match(r"\d{4}-\d{2}-\d{2}$", date):
+            year, month, day = date.split("-")
+            zh_date = f"{year}年{int(month):02d}月{int(day):02d}日"
+        preferred_sources = ("weather.com.cn", "cma.gov.cn", "tianqi.com")
+
+        def score(item: dict[str, Any]) -> int:
+            haystack = self._combined_result_text([item])
+            identity = f"{item.get('source') or ''} {item.get('url') or ''} {item.get('title') or ''}".lower()
+            value = 0
+            if date and date in haystack:
+                value += 5
+            if compact_date and compact_date in identity:
+                value += 5
+            if zh_date and zh_date in haystack:
+                value += 5
+            if self._extract_temperature_range(haystack):
+                value += 3
+            if self._extract_weather_condition(haystack):
+                value += 2
+            for index, source in enumerate(preferred_sources):
+                if source in identity:
+                    value += len(preferred_sources) - index
+            return value
+
+        return max(results, key=score)
+
+    def _combined_result_text(self, results: list[dict[str, Any]]) -> str:
+        chunks: list[str] = []
+        for item in results[:5]:
+            for key in ("title", "summary", "content_excerpt"):
+                value = str(item.get(key) or "").strip()
+                if value:
+                    chunks.append(value)
+        return "\n".join(chunks)
+
+    def _compact_search_excerpt(self, item: dict[str, Any]) -> str:
+        for key in ("summary", "content_excerpt", "title"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                return value
+        return ""
+
+    def _extract_temperature_range(self, text: str) -> str:
+        match = re.search(r"(-?\d{1,2})\s*[~～\-—至到]\s*(-?\d{1,2})\s*[℃°]?", text)
+        if match:
+            return f"{match.group(1)}~{match.group(2)}℃"
+        high = re.search(r"最高(?:气温|温度)?\D{0,8}(-?\d{1,2})\s*[℃°]?", text)
+        low = re.search(r"最低(?:气温|温度)?\D{0,8}(-?\d{1,2})\s*[℃°]?", text)
+        if high and low:
+            return f"{low.group(1)}~{high.group(1)}℃"
+        return ""
+
+    def _extract_weather_condition(self, text: str) -> str:
+        conditions = (
+            "雷阵雨",
+            "阵雨",
+            "小雨",
+            "中雨",
+            "大雨",
+            "暴雨",
+            "多云",
+            "晴",
+            "阴",
+            "雨夹雪",
+            "小雪",
+            "中雪",
+            "大雪",
+            "雾",
+            "霾",
+        )
+        for condition in conditions:
+            if condition in text:
+                return condition
+        return ""
+
+    def _extract_air_quality(self, text: str) -> str:
+        levels = "优|良|轻度污染|中度污染|重度污染|严重污染"
+        match = re.search(rf"(?:空气质量|空气|AQI)[^\n，。:：]{{0,20}}({levels})", text)
+        if match:
+            return match.group(1)
+        match = re.search(rf"\b\d{{1,3}}\s*({levels})\b", text)
+        if match:
+            return match.group(1)
+        return ""
+
+    def _findings_from_raw_results(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "title": item.get("title") or item.get("path") or item.get("url") or "结果",
+                "summary": str(item.get("summary") or item.get("content_excerpt") or "")[:240],
+                "source": item.get("source") or item.get("url") or item.get("path") or "",
+            }
+            for item in results[:5]
+        ]
+
     def _simple_chat(self, state: AgentState) -> AgentState:
         result = self.simple_chat_agent.chat(
             state["user_input"],
@@ -438,15 +1031,60 @@ class MainAgent:
         return {
             "model_response": result,
             "final_response": result.content,
+            "debug_trace": self._debug_trace(
+                state,
+                stage="MainAgent.simple_chat",
+                agent="SimpleChatAgent",
+                input=state["user_input"],
+                output=result.content,
+                status="completed",
+                route=state.get("route"),
+            ),
         }
 
     def _simple_task(self, state: AgentState) -> AgentState:
-        result = self.simple_task_agent.handle(state["user_input"])
+        brief = state.get("task_brief")
+        if isinstance(brief, TaskBrief) and brief.delegate_to == "search_agent":
+            result = self.search_agent.handle_brief(brief)
+            agent_name = "SearchAgent"
+        elif isinstance(brief, TaskBrief) and brief.delegate_to == "file_agent":
+            result = self.file_agent.handle_brief(brief)
+            agent_name = "FileAgent"
+        else:
+            result = self.simple_task_agent.handle(state["user_input"])
+            agent_name = "SimpleTaskAgent"
         status = result.status if result.ok else "failed"
+        trace = self._debug_trace(
+            state,
+            stage="MainAgent.simple_task",
+            agent=agent_name,
+            input=brief.model_dump() if isinstance(brief, TaskBrief) else state["user_input"],
+            output=self._sub_agent_output(result),
+            status=status,
+            route=state.get("route"),
+            tool_calls=result.tool_calls,
+            error=result.error,
+        )
+        trace = self._tool_debug_events({"debug_trace": trace}, result.tool_calls)
+        final_response = self._synthesize_task_result(state, result, agent_name)
+        trace = self._debug_trace(
+            {**state, "debug_trace": trace},
+            stage="MainAgent.synthesize_result",
+            agent="MainAgent",
+            input={
+                "agent": agent_name,
+                "task_brief": brief.model_dump() if isinstance(brief, TaskBrief) else None,
+                "sub_agent_result": self._sub_agent_output(result),
+            },
+            output=final_response,
+            status=status,
+            route=state.get("route"),
+        )
         return {
             "task_status": status,
             "tool_calls": result.tool_calls,
-            "final_response": result.content,
+            "final_response": final_response,
+            "debug_trace": trace,
         }
 
     def _clarify_interrupt(self, state: AgentState) -> AgentState:
@@ -503,6 +1141,15 @@ class MainAgent:
             "plan_risks": plan.risks,
             "plan_status": "pending",
             "errors": errors,
+            "debug_trace": self._debug_trace(
+                state,
+                stage="MainAgent.generate_plan",
+                agent="MainAgent",
+                input=state["user_input"],
+                output=plan.model_dump(),
+                status="completed",
+                route="future_task",
+            ),
         }
 
     def _plan_confirm_interrupt(self, state: AgentState) -> AgentState:
@@ -556,11 +1203,23 @@ class MainAgent:
             }.get(step.status, step.status)
             detail = step.result or step.error or "无结果"
             lines.append(f"{step.index}. [{label}] {step.title}\n   {detail}")
+        trace = self._debug_trace(
+            state,
+            stage="MainAgent.execute_task",
+            agent="TaskAgent",
+            input={"user_input": state["user_input"], "plan_steps": steps},
+            output=result.as_dict(),
+            status=result.status,
+            route=state.get("route"),
+            tool_calls=result.tool_calls,
+        )
+        trace = self._tool_debug_events({"debug_trace": trace}, result.tool_calls)
         return {
             "task_status": result.status,
             "task_steps": [item.as_dict() for item in result.steps],
             "tool_calls": result.tool_calls,
             "final_response": "\n".join(lines),
+            "debug_trace": trace,
         }
 
     def _plan_fallback(self, state: AgentState) -> AgentState:
@@ -578,12 +1237,30 @@ class MainAgent:
     def _finalize(self, state: AgentState) -> AgentState:
         existing = state.get("model_response")
         if existing is not None and state.get("route") == "simple_chat":
-            return {}
+            return {
+                "debug_trace": self._debug_trace(
+                    state,
+                    stage="MainAgent.finalize",
+                    agent="MainAgent",
+                    output={"preserved_model_response": True},
+                    status=state.get("status", "completed"),
+                    route=state.get("route"),
+                )
+            }
 
         content = state.get("final_response", "").strip()
         if not content:
             content = "任务已完成分析，但没有生成可展示结果。"
-        message = AIMessage(content=content, additional_kwargs=self._message_metadata(state))
+        trace = self._debug_trace(
+            state,
+            stage="MainAgent.finalize",
+            agent="MainAgent",
+            output=content,
+            status=state.get("status", "completed"),
+            route=state.get("route"),
+        )
+        metadata = self._message_metadata({**state, "debug_trace": trace})
+        message = _with_agent_metadata(AIMessage(content=content), metadata)
         selected = self._selected_model(state.get("selection"))
         return {
             "model_response": ModelResponse(
@@ -592,10 +1269,31 @@ class MainAgent:
                 provider=selected.provider,
                 model=selected.model,
                 raw_content=content,
-            )
+            ),
+            "debug_trace": trace,
         }
 
     def _rule_analysis(self, text: str) -> TaskAnalysis | None:
+        text = self._normalize_user_input(text)
+        if self._is_weather_request(text) and not self._extract_location(text):
+            return TaskAnalysis(
+                intent=text[:80],
+                complexity="needs_info",
+                task_kind="tool",
+                route_hint="clarify",
+                risk_level="low",
+                requires_confirmation=False,
+                confidence=0.82,
+                reason="天气查询需要明确地点，才能委派搜索 Agent 获取实时信息。",
+                missing_info=["天气查询地点。"],
+                clarification_questions=[
+                    ClarificationQuestion(
+                        id="location",
+                        question="你想查询哪个城市或地区的天气？",
+                        options=["北京", "上海", "广州", "深圳"],
+                    )
+                ],
+            )
         if self._has_missing_target(text):
             return TaskAnalysis(
                 intent=text[:80],
@@ -789,6 +1487,7 @@ class MainAgent:
         )
 
     def _simple_tool_intents(self, text: str) -> list[str]:
+        text = self._normalize_user_input(text)
         intents: list[str] = []
         has_path = PATH_HINT.search(text) is not None
         if self._is_file_list_request(text):
@@ -820,6 +1519,9 @@ class MainAgent:
         return bool(cleaned.strip(" ，,。；;：:"))
 
     def _is_web_search_request(self, text: str) -> bool:
+        text = self._normalize_user_input(text)
+        if self._requires_fresh_external_info(text) and any(marker in text for marker in SIMPLE_FILE_SEARCH_MARKERS + ("查询", "查一下", "搜一下", "搜索", "怎么样")):
+            return True
         if not any(marker in text for marker in WEB_SEARCH_MARKERS):
             return False
         return any(marker in text for marker in SIMPLE_FILE_SEARCH_MARKERS + ("查询", "查一下", "搜一下", "搜索"))
@@ -965,7 +1667,10 @@ class MainAgent:
             "task": {"status": state.get("task_status")} if state.get("task_status") else None,
             "steps": state.get("task_steps"),
             "tool_calls": state.get("tool_calls"),
+            "debug_trace": state.get("debug_trace"),
+            "task_brief": state.get("task_brief").model_dump() if hasattr(state.get("task_brief"), "model_dump") else state.get("task_brief"),
         }
+        metadata["agent_flow"] = self._build_agent_flow(state)
         if route:
             metadata["route"] = route
         if analysis:
@@ -986,12 +1691,8 @@ class MainAgent:
         return metadata
 
     def _with_message_metadata(self, result: ModelResponse, state: AgentState) -> ModelResponse:
-        existing = getattr(result.message, "additional_kwargs", {}) or {}
-        message = AIMessage(
-            content=result.message.content,
-            additional_kwargs={**existing, **self._message_metadata(state)},
-            response_metadata=getattr(result.message, "response_metadata", {}) or {},
-        )
+        metadata = self._message_metadata(state)
+        message = _with_agent_metadata(result.message, metadata)
         return ModelResponse(
             content=result.content,
             message=message,
@@ -1002,10 +1703,7 @@ class MainAgent:
         )
 
     def _record_history(self, user_record: str, assistant_message: AIMessage) -> None:
-        user_message = HumanMessage(
-            content=user_record,
-            additional_kwargs={"created_at": isoformat()},
-        )
+        user_message = _with_agent_metadata(HumanMessage(content=user_record), {"created_at": isoformat()})
         self.history.add_message(user_message)
         self.history.add_message(assistant_message)
         self._trim_history()

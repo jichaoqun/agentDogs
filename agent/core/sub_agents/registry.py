@@ -10,9 +10,14 @@ from typing import Any
 class SubAgentSpec:
     name: str
     description: str
+    handles: list[str] = field(default_factory=list)
+    does_not_handle: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
+    input_contract: dict[str, Any] = field(default_factory=dict)
+    output_contract: dict[str, Any] = field(default_factory=dict)
     risk_level: str = "low"
+    examples: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -22,6 +27,11 @@ class SubAgentResult:
     data: Any | None = None
     error: str | None = None
     status: str = "completed"
+    summary: str = ""
+    findings: list[dict[str, Any]] = field(default_factory=list)
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    next_actions: list[str] = field(default_factory=list)
+    confidence: float | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
@@ -31,9 +41,25 @@ class SubAgentResult:
         *,
         data: Any | None = None,
         status: str = "completed",
+        summary: str = "",
+        findings: list[dict[str, Any]] | None = None,
+        evidence: list[dict[str, Any]] | None = None,
+        next_actions: list[str] | None = None,
+        confidence: float | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
     ) -> "SubAgentResult":
-        return cls(True, content, data=data, status=status, tool_calls=tool_calls or [])
+        return cls(
+            True,
+            content,
+            data=data,
+            status=status,
+            summary=summary or content,
+            findings=findings or [],
+            evidence=evidence or [],
+            next_actions=next_actions or [],
+            confidence=confidence,
+            tool_calls=tool_calls or [],
+        )
 
     @classmethod
     def failure(
@@ -41,9 +67,26 @@ class SubAgentResult:
         error: str,
         *,
         data: Any | None = None,
+        summary: str = "",
+        findings: list[dict[str, Any]] | None = None,
+        evidence: list[dict[str, Any]] | None = None,
+        next_actions: list[str] | None = None,
+        confidence: float | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
     ) -> "SubAgentResult":
-        return cls(False, error, data=data, error=error, status="failed", tool_calls=tool_calls or [])
+        return cls(
+            False,
+            error,
+            data=data,
+            error=error,
+            status="failed",
+            summary=summary or error,
+            findings=findings or [],
+            evidence=evidence or [],
+            next_actions=next_actions or [],
+            confidence=confidence,
+            tool_calls=tool_calls or [],
+        )
 
 
 @dataclass(slots=True)

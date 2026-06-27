@@ -1,53 +1,73 @@
-# Tools
+# Tools 设计
 
-功能：根据 Agent 的任务调度，调用 Tools 完成基础能力。
+Tools 是 Agent Dogs 的基础能力层，只负责原子操作，不承担复杂任务推理。复杂任务理解、工具选择、结果汇总由 MainAgent 和子 Agent 完成。
 
-当前工具层已经采用内部注册表设计：
+## 工具注册表
+
+位置：
+
+- `agent/core/tools/base.py`
+- `agent/core/tools/__init__.py`
+
+核心对象：
 
 - `ToolSpec`: 描述工具名称、说明、输入结构、风险等级和能力标签。
 - `ToolResult`: 统一返回 `ok`、`content`、`data`、`error`、`artifacts`。
-- `ToolRegistry`: 统一注册、列出、按名称调用工具。
+- `ToolRegistry`: 注册、列出、按名称调用工具。
 
-工具层只做基础能力，不直接承担复杂任务推理。专业任务由 sub_agents 组合工具完成；明确、低风险、一步可完成的工具任务由 SimpleTaskAgent 直接调用低风险工具完成。
+后端只读调试接口：
+
+- `GET /api/v1/tools`: 查看已注册工具。
+- `GET /api/v1/agents`: 查看已注册子 Agent 及能力说明。
+
+前端不直接开放任意工具调用接口，避免绕过 Agent 权限控制和人工确认流程。
 
 ## 文件工具
 
-当前已实现：
+位置：
 
-- `list_workspace_tree`: 列出 workspace 文件树，默认排除 `.trash`。
+- `agent/core/tools/file_tools.py`
+
+当前工具：
+
+- `list_workspace_tree`: 列出 workspace 文件树。
 - `read_file`: 读取文本类文件和 DOCX 纯文本。
-- `write_file`: 写入文本类文件，高风险工具，自动执行前必须人工确认。
+- `write_file`: 写入文本文件，高风险工具，当前不会被普通 Agent 静默执行。
 - `search_files`: 按文件名和文本内容搜索 workspace。
-- `file_info`: 读取文件或目录元信息。
+- `file_info`: 查看文件或目录元信息。
 
 安全规则：
 
-- 所有路径限制在 `workspace/` 内。
+- 所有相对路径默认相对于 `workspace/`。
 - 禁止绝对路径、盘符跳转和 `..` 路径穿越。
 - 默认禁止直接操作 `workspace/.trash`。
-- 文本读取默认限制 2MB。
-- 写入类工具标记为 `high` 风险，当前 SimpleTaskAgent/FileAgent/TaskAgent 不会静默调用。
-
-## SimpleTaskAgent 调用策略
-
-SimpleTaskAgent 可以访问工具注册表，但第一版只自动执行低风险工具：
-
-- `list_workspace_tree`: 处理“当前项目中有哪些文件”“当前工作目录有哪些文件”等目录列表问题。
-- `read_file`: 读取明确路径的文本或 DOCX 纯文本文件。
-- `search_files`: 搜索明确关键词。
-- `file_info`: 查看明确路径的文件或目录信息。
-
-中风险和高风险工具必须进入计划确认或人工确认流程，不能被简单任务静默执行。
+- 文本读取有大小限制。
+- 写入类工具标记为 `high` 风险，必须进入人工确认或后续审批流程。
 
 ## 搜索工具
 
-当前已实现受控搜索工具：
+位置：
 
-- `workspace_search`: 搜索 workspace 中的文件名和文本内容，底层复用文件搜索能力，并返回统一搜索结果结构。
+- `agent/core/tools/search_tools.py`
+
+当前工具：
+
+- `workspace_search`: 搜索 workspace 中的文件名和文本内容，返回统一搜索结果结构。
 - `keyword_search`: 在给定文本或结果列表中做关键词匹配、排序和摘要。
-- `web_search`: 联网搜索入口。第一版默认使用 DuckDuckGo HTML/lite best-effort provider，不需要 API key；启用后会抓取前几个搜索结果页正文，返回标题、URL、站点、摘要、正文片段、抓取状态和命中原因。
+- `web_search`: 联网搜索入口，默认使用 DuckDuckGo HTML best-effort provider，可抓取前几个结果页正文片段。
 
-联网搜索配置位于 `config/llm.yaml` 顶层 `search` 节，不混入 LLM `providers`：
+`web_search` 返回的结果包含：
+
+- `title`
+- `url`
+- `source`
+- `summary`
+- `content_excerpt`
+- `fetched`
+- `error`
+- `match_reason`
+
+联网搜索配置在 `config/llm.yaml` 顶层 `search`：
 
 ```yaml
 search:
@@ -59,48 +79,87 @@ search:
   user_agent: AgentDogs/0.1
 ```
 
-也可以用环境变量 `AGENT_WEB_SEARCH_ENABLED=1` 临时启用。未启用、网络失败、搜索源拒绝或页面抓取失败时，工具返回结构化错误，不让 Agent 编造联网结果。
+也可以用环境变量临时启用：
 
-搜索工具安全规则：
+```powershell
+$env:AGENT_WEB_SEARCH_ENABLED = "1"
+```
+
+搜索安全规则：
 
 - 搜索工具均为只读低风险工具。
 - `workspace_search` 只访问 workspace。
-- `web_search` 只支持 `http/https`，拒绝 `localhost`、私有 IP、内网域名、`file://` 和非 HTTP 协议，避免 SSRF。
-- `web_search` 限制结果数量、请求超时、响应大小和正文片段长度，避免长网页撑爆上下文。
-- `web_search` 未启用或请求失败时只返回明确提示，不调用模型编造联网结果。
-- 搜索结果需要保留来源、路径或 URL，供 Agent 汇总时引用。
+- `web_search` 只支持 `http/https`。
+- `web_search` 拒绝 `localhost`、私有 IP、内网域名、`file://` 和非 HTTP 协议，避免 SSRF。
+- `web_search` 限制结果数量、请求超时、响应大小和正文片段长度。
+- 搜索失败时返回结构化错误，不让 Agent 编造联网结果。
 
-## 文档工具
-支持：
-PDF解析
-Word解析
-Excel解析
-Markdown解析
-OCR解析
+## 子 Agent 如何使用工具
 
-## 代码工具
-支持：
-Python执行
-Shell执行
-Notebook执行
-项目扫描
+### SimpleChatAgent
 
-## AI工具
-支持：
-文本总结
-信息抽取
-分类
-翻译
-向量化
+不调用工具，只做模型对话。
 
-## 执行沙箱（Sandbox/Safe Execution）： 
-你的需求提到了“代码能力”和“文件操作”。这具有极大的安全隐患。 如果LLM理解错误，执行了删除系统文件或死循环代码怎么办？本地助手必须有一个隔离的沙箱环境（如 Docker、WASM，或者严格的本地目录权限限制），限制其只能操作指定的“工作区（Workspace）”文件夹。
+### SearchAgent
 
-## 调试接口
+处理搜索类任务，可调用：
 
-后端提供只读调试接口：
+- `workspace_search`
+- `keyword_search`
+- `web_search`
 
-- `GET /api/v1/tools`: 查看已注册工具。
-- `GET /api/v1/agents`: 查看已注册子 Agent。
+`SearchAgent` 会根据 `TaskBrief.source_policy` 和 `context.source_scope` 判断搜索源：
 
-前端不直接开放工具调用接口，避免绕过 Agent 的权限控制和人工确认流程。
+- `requires_fresh_external_info` 或 `source_scope=web`: 使用 `web_search`。
+- `source_scope=workspace`: 使用 `workspace_search`。
+- `source_scope=keyword`: 使用 `keyword_search`。
+
+子 Agent 返回结构化 `summary/findings/evidence`，最终用户回复由 MainAgent 的 `synthesize_result` 汇总。
+
+### FileAgent
+
+处理 workspace 文件读取和搜索，可调用：
+
+- `read_file`
+- `search_files`
+
+文件请求示例：
+
+- `读取 readme.md`
+- `帮我查看 add_new.md 中的内容`
+- ``帮我查看 `add_new.md` 中的内容``
+
+路径提取会去掉中文自然语言前后缀，例如“帮我查看”“中的内容”“的内容是什么”，并优先保留反引号里的路径。
+
+### SimpleTaskAgent
+
+兼容层，支持明确、低风险、一步工具任务：
+
+- 列目录。
+- 读取明确文件。
+- 搜索明确关键词。
+- 查看文件信息。
+
+后续会逐步把搜索能力迁移给 `SearchAgent`，文件能力迁移给 `FileAgent`。
+
+### TaskAgent
+
+复杂任务第一阶段执行器。当前只执行低风险只读步骤，遇到写文件、删除、命令执行等高风险动作会标记为 `waiting_confirmation`。
+
+## 工具调用调试
+
+每次工具调用会进入 `tool_calls` 和 `debug_trace`：
+
+```json
+{
+  "tool": "web_search",
+  "payload": {
+    "query": "北京 2026-06-28 天气 预报",
+    "max_results": 5,
+    "fetch_pages": 3
+  },
+  "ok": true
+}
+```
+
+前端调试面板会在“工具调用”区域展示工具名称、输入、状态和错误。完整结构也可在“原始 JSON”中查看。

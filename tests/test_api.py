@@ -442,8 +442,12 @@ class FileApiTests(unittest.TestCase):
             "/api/v1/files/upload",
             files={"file": ("upload.txt", b"uploaded", "text/plain")},
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual((api_app.WORKSPACE_ROOT / "upload.txt").read_text(encoding="utf-8"), "uploaded")
+        if api_app.MULTIPART_AVAILABLE:
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual((api_app.WORKSPACE_ROOT / "upload.txt").read_text(encoding="utf-8"), "uploaded")
+        else:
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("python-multipart", response.text)
 
         (api_app.WORKSPACE_ROOT / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         response = self.client.get("/api/v1/files/raw", params={"path": "image.png"})

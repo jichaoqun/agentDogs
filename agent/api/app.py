@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from html import escape
+import importlib.util
 import mimetypes
 from pathlib import Path
 import shutil
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import BaseMessage
 
-from agent.core.main_agent import AgentInterruptError, AgentRunCancelled
+from agent.core.main_agent import AGENT_METADATA_KEY, AgentInterruptError, AgentRunCancelled
 from agent.core.sub_agents import create_default_sub_agent_registry
 from agent.core.tools import create_default_tool_registry
 from agent.core.utils.llm_config import AppConfig, load_config
@@ -62,6 +63,10 @@ WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
 TRASH_DIR_NAME = ".trash"
 MAX_TEXT_BYTES = 2 * 1024 * 1024
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+MULTIPART_AVAILABLE = (
+    importlib.util.find_spec("multipart") is not None
+    or importlib.util.find_spec("python_multipart") is not None
+)
 EDITABLE_SUFFIXES = {
     ".txt",
     ".md",
@@ -201,7 +206,10 @@ def _trash_target(path: Path) -> Path:
 def _message_out(message: BaseMessage) -> MessageOut:
     role = "assistant" if message.type == "ai" else "user" if message.type == "human" else message.type
     content = message.content if isinstance(message.content, str) else str(message.content)
-    metadata = getattr(message, "additional_kwargs", {}) or {}
+    response_metadata = getattr(message, "response_metadata", {}) or {}
+    metadata = response_metadata.get(AGENT_METADATA_KEY)
+    if not isinstance(metadata, dict):
+        metadata = getattr(message, "additional_kwargs", {}) or {}
     clarification = metadata.get("clarification")
     interrupt = metadata.get("interrupt")
     return MessageOut(
@@ -218,6 +226,9 @@ def _message_out(message: BaseMessage) -> MessageOut:
         task=metadata.get("task"),
         steps=metadata.get("steps"),
         tool_calls=metadata.get("tool_calls"),
+        debug_trace=metadata.get("debug_trace"),
+        agent_flow=metadata.get("agent_flow"),
+        task_brief=metadata.get("task_brief"),
     )
 
 
@@ -237,6 +248,9 @@ def _response_metadata(agent: Any) -> dict[str, Any]:
             "task": raw.get("task"),
             "steps": raw.get("steps"),
             "tool_calls": raw.get("tool_calls"),
+            "debug_trace": raw.get("debug_trace"),
+            "agent_flow": raw.get("agent_flow"),
+            "task_brief": raw.get("task_brief"),
         }
     state = getattr(agent, "last_state", None) or {}
     analysis = state.get("task_analysis")
@@ -252,6 +266,9 @@ def _response_metadata(agent: Any) -> dict[str, Any]:
         "task": {"status": state.get("task_status")} if state.get("task_status") else None,
         "steps": state.get("task_steps"),
         "tool_calls": state.get("tool_calls"),
+        "debug_trace": state.get("debug_trace"),
+        "agent_flow": state.get("agent_flow"),
+        "task_brief": state.get("task_brief").model_dump() if hasattr(state.get("task_brief"), "model_dump") else state.get("task_brief"),
     }
     if route == "clarify":
         metadata["clarification"] = ClarificationOut.model_validate({
@@ -287,6 +304,9 @@ def _chat_response(
     assistant_message.task = metadata["task"]
     assistant_message.steps = metadata["steps"]
     assistant_message.tool_calls = metadata["tool_calls"]
+    assistant_message.debug_trace = metadata["debug_trace"]
+    assistant_message.agent_flow = metadata["agent_flow"]
+    assistant_message.task_brief = metadata["task_brief"]
     return ChatResponse(
         session_id=session.id,
         message=assistant_message,
@@ -307,6 +327,9 @@ def _chat_response(
         task=metadata["task"],
         steps=metadata["steps"],
         tool_calls=metadata["tool_calls"],
+        debug_trace=metadata["debug_trace"],
+        agent_flow=metadata["agent_flow"],
+        task_brief=metadata["task_brief"],
     )
 
 
@@ -417,9 +440,14 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
             SubAgentInfoOut(
                 name=item.name,
                 description=item.description,
+                handles=item.handles,
+                does_not_handle=item.does_not_handle,
                 capabilities=item.capabilities,
                 tools=item.tools,
+                input_contract=item.input_contract,
+                output_contract=item.output_contract,
                 risk_level=item.risk_level,
+                examples=item.examples,
             )
             for item in registry.list_specs()
         ]
@@ -533,23 +561,31 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
         shutil.move(str(target), str(_trash_target(target)))
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    @application.post("/api/v1/files/upload", response_model=FileNodeOut, status_code=status.HTTP_201_CREATED)
-    async def upload_file_item(path: str = "", file: UploadFile = File(...)) -> FileNodeOut:
-        parent = _resolve_workspace_path(path)
-        _reject_trash_path(parent)
-        if not parent.is_dir():
-            raise HTTPException(status_code=404, detail="目标文件夹不存在")
-        filename = _safe_child_name(file.filename or "")
-        if Path(filename).suffix.lower() not in ALLOWED_UPLOAD_SUFFIXES:
-            raise HTTPException(status_code=415, detail="不支持的上传文件类型")
-        target = parent / filename
-        if target.exists():
-            raise HTTPException(status_code=409, detail="同名文件已存在")
-        data = await file.read(MAX_UPLOAD_BYTES + 1)
-        if len(data) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="上传文件超过 50MB")
-        target.write_bytes(data)
-        return _file_node(target)
+    if MULTIPART_AVAILABLE:
+        @application.post("/api/v1/files/upload", response_model=FileNodeOut, status_code=status.HTTP_201_CREATED)
+        async def upload_file_item(path: str = "", file: UploadFile = File(...)) -> FileNodeOut:
+            parent = _resolve_workspace_path(path)
+            _reject_trash_path(parent)
+            if not parent.is_dir():
+                raise HTTPException(status_code=404, detail="目标文件夹不存在")
+            filename = _safe_child_name(file.filename or "")
+            if Path(filename).suffix.lower() not in ALLOWED_UPLOAD_SUFFIXES:
+                raise HTTPException(status_code=415, detail="不支持的上传文件类型")
+            target = parent / filename
+            if target.exists():
+                raise HTTPException(status_code=409, detail="同名文件已存在")
+            data = await file.read(MAX_UPLOAD_BYTES + 1)
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="上传文件超过 50MB")
+            target.write_bytes(data)
+            return _file_node(target)
+    else:
+        @application.post("/api/v1/files/upload", status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        async def upload_file_item_unavailable(path: str = "") -> dict[str, str]:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Missing python-multipart; file upload is unavailable. Run pip install -r requirements.txt",
+            )
 
     @application.post("/api/v1/sessions", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
     def create_session(payload: SessionCreate) -> SessionOut:

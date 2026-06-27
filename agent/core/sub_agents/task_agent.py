@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .file_agent import FileAgent
+from .registry import SubAgentSpec
 from .search_agent import SearchAgent
 
 
@@ -57,8 +58,25 @@ class TaskExecutionResult:
 class TaskAgent:
     """Minimal coordinator that delegates first-phase work to specialist agents."""
 
+    CAPABILITY = SubAgentSpec(
+        name="task_agent",
+        description="复杂任务计划步骤调度器，负责把多步骤任务委派给领域子 Agent 并汇总步骤状态。",
+        handles=["多步骤任务执行", "计划确认后的任务调度", "跨文件和搜索的阶段性执行"],
+        does_not_handle=["纯聊天", "未经确认的高风险写操作", "直接底层工具调用"],
+        capabilities=["task.execute", "task.summarize", "step.track", "search.dispatch", "file.dispatch"],
+        tools=["file_agent", "search_agent"],
+        input_contract={"type": "approved_plan", "fields": ["user_input", "plan_steps"]},
+        output_contract={"type": "TaskExecutionResult", "fields": ["summary", "steps", "tool_calls"]},
+        risk_level="medium",
+        examples=["计划确认后分析整个项目", "按步骤搜索并总结资料"],
+    )
+
     file_agent: FileAgent
     search_agent: SearchAgent | None = None
+
+    @classmethod
+    def capability_spec(cls) -> SubAgentSpec:
+        return cls.CAPABILITY
 
     def execute(self, *, user_input: str, plan_steps: list[str]) -> TaskExecutionResult:
         records: list[TaskStepRecord] = []

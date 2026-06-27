@@ -13,6 +13,8 @@ const PROVIDER_GROUPS = [
   { id: 'builtin', title: '内置模型' },
 ]
 
+const DEBUG_PANEL_DEFAULT = String(import.meta.env.VITE_AGENT_DEBUG_PANEL || '').toLowerCase() === 'true'
+
 function modelKey(model) {
   return model ? `${model.provider}:${model.model}` : ''
 }
@@ -77,6 +79,39 @@ function localMessage(role, content, extra = {}) {
 
 function isAbortError(error) {
   return error?.name === 'AbortError'
+}
+
+function isAgentDebugPanelEnabled() {
+  try {
+    const value = localStorage.getItem('agentDebugPanel')
+    if (value === 'true') return true
+    if (value === 'false') return false
+  } catch {
+    // Ignore storage access errors and use the build-time default.
+  }
+  return DEBUG_PANEL_DEFAULT
+}
+
+function hasDebugValue(value) {
+  if (Array.isArray(value)) return value.length > 0
+  if (value && typeof value === 'object') return Object.keys(value).length > 0
+  return value !== undefined && value !== null && value !== ''
+}
+
+function DebugJson({ value }) {
+  if (!hasDebugValue(value)) return null
+  return <pre>{JSON.stringify(value, null, 2)}</pre>
+}
+
+function DebugLine({ label, value }) {
+  if (!hasDebugValue(value)) return null
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  return (
+    <div className="agent-debug-line">
+      <span>{label}</span>
+      <code>{text}</code>
+    </div>
+  )
 }
 
 function Welcome() {
@@ -275,10 +310,126 @@ function MarkdownContent({ content }) {
   }
 }
 
-function Message({ message, onClarify, onPlan, canResume }) {
+function AgentFlowPanel({ flow }) {
+  if (!hasDebugValue(flow)) return null
+  const mainAgent = flow.mainAgent || {}
+  const subAgents = Array.isArray(flow.subAgents) ? flow.subAgents : []
+  const tools = Array.isArray(flow.tools) ? flow.tools : []
+  const errors = Array.isArray(flow.errors) ? flow.errors : []
+  return (
+    <div className="agent-flow">
+      <section className="agent-flow-section">
+        <h4>主 Agent</h4>
+        <DebugLine label="名称" value={mainAgent.name} />
+        <DebugLine label="路由" value={mainAgent.route} />
+        <DebugLine label="复杂度" value={mainAgent.complexity} />
+        <DebugLine label="状态" value={mainAgent.status} />
+        <DebugLine label="路由原因" value={mainAgent.routeReason} />
+        <details className="agent-flow-details">
+          <summary>详细输入与分析</summary>
+          <DebugJson value={{
+            input: mainAgent.input,
+            analysis: mainAgent.analysis,
+            taskBrief: mainAgent.taskBrief,
+            plan: mainAgent.plan,
+            events: mainAgent.events,
+          }} />
+        </details>
+      </section>
+
+      <section className="agent-flow-section">
+        <h4>子 Agent</h4>
+        {subAgents.length ? subAgents.map((agent, index) => (
+          <details className="agent-flow-details" key={`${agent.name || 'agent'}-${index}`} open={index === 0}>
+            <summary>
+              <strong>{agent.name || agent.type || 'SubAgent'}</strong>
+              <span>{agent.status || 'unknown'}</span>
+            </summary>
+            <DebugLine label="类型" value={agent.type} />
+            <DebugLine label="说明" value={agent.description} />
+            <DebugLine label="能力" value={agent.capabilities} />
+            <DebugJson value={{
+              input: agent.input,
+              output: agent.output,
+              error: agent.error,
+              relatedToolCalls: agent.relatedToolCalls,
+            }} />
+          </details>
+        )) : <p className="agent-flow-empty">本次没有调用子 Agent。</p>}
+      </section>
+
+      <section className="agent-flow-section">
+        <h4>工具调用</h4>
+        {tools.length ? tools.map((tool, index) => (
+          <details className="agent-flow-details" key={`${tool.name || 'tool'}-${index}`}>
+            <summary>
+              <strong>{tool.name || 'Tool'}</strong>
+              <span>{tool.status || (tool.ok ? 'completed' : 'failed')}</span>
+            </summary>
+            <DebugJson value={{
+              input: tool.input,
+              output: tool.output,
+              ok: tool.ok,
+              error: tool.error,
+            }} />
+          </details>
+        )) : <p className="agent-flow-empty">本次没有调用工具。</p>}
+      </section>
+
+      <section className="agent-flow-section">
+        <h4>最终输出</h4>
+        <DebugJson value={flow.finalOutput} />
+      </section>
+
+      {errors.length ? (
+        <section className="agent-flow-section danger">
+          <h4>错误</h4>
+          <DebugJson value={errors} />
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
+function AgentDebugPanel({ message }) {
+  const payload = {
+    route: message.route,
+    complexity: message.complexity,
+    status: message.status,
+    planStatus: message.planStatus,
+    toolCalls: message.toolCalls,
+    steps: message.steps,
+    debugTrace: message.debugTrace,
+    agentFlow: message.agentFlow,
+    taskBrief: message.taskBrief,
+  }
+  const hasDebug = Object.values(payload).some(hasDebugValue)
+  if (!hasDebug) return null
+  return (
+    <details className="agent-debug-block">
+      <summary>调试信息</summary>
+      <div className="agent-debug-body">
+        {hasDebugValue(message.agentFlow) ? <AgentFlowPanel flow={message.agentFlow} /> : null}
+        {!hasDebugValue(message.agentFlow) && hasDebugValue(message.debugTrace) ? (
+          <section className="agent-flow-section">
+            <h4>Trace</h4>
+            <DebugJson value={message.debugTrace} />
+          </section>
+        ) : null}
+        <details className="agent-flow-details raw-json">
+          <summary>原始 JSON</summary>
+          <DebugJson value={payload} />
+        </details>
+      </div>
+    </details>
+  )
+}
+
+function Message({ message, onClarify, onPlan, canResume, showDebugPanel }) {
   const assistant = message.role === 'assistant'
   const interrupt = message.interrupt
   const time = formatMessageTime(message.created_at)
+  const showDebug = assistant && showDebugPanel
   return (
     <article className={`message ${assistant ? 'assistant' : 'user'}`}>
       <div className="avatar">{assistant ? <Bot size={18} /> : <UserRound size={17} />}</div>
@@ -308,6 +459,7 @@ function Message({ message, onClarify, onPlan, canResume }) {
             查看计划
           </button>
         ) : null}
+        {showDebug ? <AgentDebugPanel message={message} /> : null}
         {message.backend && <span className="backend-chip">{message.backend}</span>}
       </div>
     </article>
@@ -349,6 +501,21 @@ function assistantFromResult(result) {
     task: result.task,
     steps: result.steps,
     toolCalls: result.tool_calls,
+    debugTrace: result.debug_trace,
+    agentFlow: result.agent_flow,
+    taskBrief: result.task_brief,
+  }
+}
+
+function normalizeMessage(message) {
+  return {
+    ...message,
+    planSteps: message.planSteps ?? message.plan_steps,
+    planStatus: message.planStatus ?? message.plan_status,
+    toolCalls: message.toolCalls ?? message.tool_calls,
+    debugTrace: message.debugTrace ?? message.debug_trace,
+    agentFlow: message.agentFlow ?? message.agent_flow,
+    taskBrief: message.taskBrief ?? message.task_brief,
   }
 }
 
@@ -526,6 +693,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [sidebar, setSidebar] = useState(true)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
+  const [debugPanelEnabled, setDebugPanelEnabled] = useState(() => isAgentDebugPanelEnabled())
   const [clarifyDialog, setClarifyDialog] = useState(null)
   const [clarifyAnswers, setClarifyAnswers] = useState({})
   const [planDialog, setPlanDialog] = useState(null)
@@ -572,6 +740,18 @@ export default function App() {
   const selectedModel = models.find((item) => modelKey(item) === selectedModelKey) || null
   const hasUnsavedFile = Boolean(fileContent?.editable && draftContent !== fileContent.content)
 
+  function toggleDebugPanel() {
+    setDebugPanelEnabled((current) => {
+      const next = !current
+      try {
+        localStorage.setItem('agentDebugPanel', next ? 'true' : 'false')
+      } catch {
+        // Keep the in-memory toggle even when localStorage is unavailable.
+      }
+      return next
+    })
+  }
+
   useEffect(() => {
     if (selectedModel && !selectedModel.supports_thinking && thinkingEnabled) {
       setThinkingEnabled(false)
@@ -594,7 +774,7 @@ export default function App() {
   async function openSession(id) {
     const detail = await api.session(id)
     setActiveId(id)
-    setMessages(detail.messages)
+    setMessages((detail.messages || []).map(normalizeMessage))
     setError('')
     if (window.innerWidth < 760) setSidebar(false)
   }
@@ -986,6 +1166,15 @@ export default function App() {
             <div><strong>{enabled.length ? '模型已就绪' : '模型未配置'}</strong><small>{models.length ? `${models.length} 个可用模型` : enabled.map((item) => item.name).join(' · ') || '请检查设置'}</small></div>
           </div>
           <button className="settings-button"><Settings2 size={18} />设置<span>即将开放</span></button>
+          <button
+            type="button"
+            className={`debug-toggle-button ${debugPanelEnabled ? 'active' : ''}`}
+            onClick={toggleDebugPanel}
+          >
+            <Settings2 size={18} />
+            调试信息
+            <span>{debugPanelEnabled ? '显示中' : '已隐藏'}</span>
+          </button>
         </div>
       </aside>
 
@@ -1009,6 +1198,7 @@ export default function App() {
                     onClarify={openClarification}
                     onPlan={openPlan}
                     canResume={index === latestPendingInterruptIndex}
+                    showDebugPanel={debugPanelEnabled}
                   />
                 ))}
                 {busy && <div className="thinking"><span /><span /><span /> Agent 正在思考</div>}

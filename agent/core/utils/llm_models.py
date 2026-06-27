@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from .llm_config import AppConfig, ProviderConfig
 
@@ -472,7 +472,7 @@ class ModelManager:
         selected = selection or self.default_selection
         generation = options or GenerationOptions()
         provider = self._provider(selected.provider)
-        raw_message = provider.invoke(messages, selected.model, generation)
+        raw_message = provider.invoke(_sanitize_messages_for_model(messages), selected.model, generation)
         raw_content = _message_text(raw_message)
         metadata_reasoning = _message_reasoning(raw_message)
         tagged_reasoning, content, incomplete = _split_reasoning(
@@ -516,6 +516,42 @@ def _normalize_message(response: Any) -> AIMessage:
     if not _message_text(message).strip() and not _message_reasoning(message):
         raise ModelInvocationError("模型返回了空内容")
     return message
+
+
+_MODEL_SAFE_ADDITIONAL_KEYS = {
+    "function_call",
+    "refusal",
+}
+
+
+def _sanitize_messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Strip Agent Dogs metadata before replaying history to model providers."""
+    sanitized: list[BaseMessage] = []
+    for message in messages:
+        content = message.content
+        if message.type == "human":
+            sanitized.append(HumanMessage(content=content))
+        elif message.type == "system":
+            sanitized.append(SystemMessage(content=content))
+        elif message.type == "ai":
+            kwargs = {
+                key: value
+                for key, value in (getattr(message, "additional_kwargs", {}) or {}).items()
+                if key in _MODEL_SAFE_ADDITIONAL_KEYS and value
+            }
+            sanitized.append(AIMessage(content=content, additional_kwargs=kwargs))
+        elif hasattr(message, "model_copy"):
+            sanitized.append(
+                message.model_copy(
+                    update={
+                        "additional_kwargs": {},
+                        "response_metadata": {},
+                    }
+                )
+            )
+        else:
+            sanitized.append(message)
+    return sanitized
 
 
 # Short, stable name for callers that prefer a service-oriented vocabulary.

@@ -48,6 +48,9 @@ class MessageOut(BaseModel):
     task: dict | None = None
     steps: list[dict] | None = None
     tool_calls: list[dict] | None = None
+    debug_trace: list[dict] | None = None
+    agent_flow: dict | None = None
+    task_brief: dict | None = None
 
 
 class SessionOut(BaseModel):
@@ -104,6 +107,9 @@ class ChatResponse(BaseModel):
     task: dict | None = None
     steps: list[dict] | None = None
     tool_calls: list[dict] | None = None
+    debug_trace: list[dict] | None = None
+    agent_flow: dict | None = None
+    task_brief: dict | None = None
 
 
 class CancelRunResponse(BaseModel):
@@ -123,9 +129,14 @@ class ToolInfoOut(BaseModel):
 class SubAgentInfoOut(BaseModel):
     name: str
     description: str
+    handles: list[str] = Field(default_factory=list)
+    does_not_handle: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
+    input_contract: dict = Field(default_factory=dict)
+    output_contract: dict = Field(default_factory=dict)
     risk_level: str
+    examples: list[str] = Field(default_factory=list)
 
 
 class BackendStatus(BaseModel):

@@ -7,13 +7,42 @@ import re
 from typing import Any
 
 from ..tools import ToolRegistry, ToolResult
-from .registry import SubAgentResult
+from .registry import SubAgentResult, SubAgentSpec
 from .search_agent import SearchAgent
 
 
 PATH_HINT = re.compile(
     r"`([^`]+)`|([\w\u4e00-\u9fff .\\/-]+\.(?:md|txt|py|js|jsx|ts|tsx|json|ya?ml|html|css|csv|xml|log|docx|pdf))",
     re.IGNORECASE,
+)
+PATH_PREFIXES = (
+    "请帮我查看",
+    "请帮我读取",
+    "帮我查看",
+    "帮我读取",
+    "帮我打开",
+    "请查看",
+    "请读取",
+    "请打开",
+    "查看一下",
+    "读取一下",
+    "打开一下",
+    "看一下",
+    "查看",
+    "读取",
+    "打开",
+    "预览",
+    "帮我",
+    "请",
+)
+PATH_SUFFIXES = (
+    "中的内容是什么",
+    "里面的内容是什么",
+    "的内容是什么",
+    "中的内容",
+    "里面的内容",
+    "的内容",
+    "内容是什么",
 )
 LIST_MARKERS = (
     "有哪些文件",
@@ -43,8 +72,25 @@ class SimpleTaskAgent:
     confirmation-oriented flow.
     """
 
+    CAPABILITY = SubAgentSpec(
+        name="simple_task",
+        description="兼容层：执行明确、低风险、一步可完成的本地工具任务。",
+        handles=["列出 workspace 文件", "读取明确路径文件", "查看文件信息", "兼容旧的一步搜索任务"],
+        does_not_handle=["复杂任务编排", "高风险写操作", "需要深度自治的搜索任务"],
+        capabilities=["tool.route", "file.list", "file.read", "file.search", "file.info", "compat.simple_task"],
+        tools=["list_workspace_tree", "read_file", "workspace_search", "web_search", "file_info"],
+        input_contract={"type": "plain_text", "requires_explicit_target": True},
+        output_contract={"type": "SubAgentResult", "summary": "直接工具结果或兼容性提示"},
+        risk_level="low",
+        examples=["当前项目中有哪些文件", "读取 readme.md", "搜索 workspace 中的 protein"],
+    )
+
     tools: ToolRegistry
     search_agent: SearchAgent | None = None
+
+    @classmethod
+    def capability_spec(cls) -> SubAgentSpec:
+        return cls.CAPABILITY
 
     def handle(self, user_input: str) -> SubAgentResult:
         text = user_input.strip()
@@ -161,7 +207,23 @@ class SimpleTaskAgent:
             return match.group(1).strip()
         raw = (match.group(2) or "").strip(" ，,。；;：:")
         parts = [item.strip(" ，,。；;：:") for item in raw.split() if item.strip()]
-        return parts[-1] if parts else raw
+        candidate = parts[-1] if parts else raw
+        return self._clean_path_candidate(candidate)
+
+    def _clean_path_candidate(self, path: str) -> str:
+        candidate = path.strip(" `，。；;：:?？!！")
+        changed = True
+        while changed:
+            changed = False
+            for prefix in PATH_PREFIXES:
+                if candidate.startswith(prefix):
+                    candidate = candidate[len(prefix):].strip(" `，。；;：:?？!！")
+                    changed = True
+            for suffix in PATH_SUFFIXES:
+                if candidate.endswith(suffix):
+                    candidate = candidate[:-len(suffix)].strip(" `，。；;：:?？!！")
+                    changed = True
+        return candidate
 
     def _looks_like_directory_path(self, path: str) -> bool:
         return bool(path and not re.search(r"\.[A-Za-z0-9]+$", path))

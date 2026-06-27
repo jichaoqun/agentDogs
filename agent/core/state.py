@@ -57,6 +57,20 @@ class TaskPlan(BaseModel):
     requires_confirmation: bool = True
 
 
+class TaskBrief(BaseModel):
+    """MainAgent's task understanding and delegation brief for sub-agents."""
+
+    intent: str = ""
+    user_goal: str = ""
+    normalized_input: str = ""
+    context: dict[str, Any] = Field(default_factory=dict)
+    constraints: list[str] = Field(default_factory=list)
+    source_policy: str = "not_required"
+    expected_output: str = ""
+    delegate_to: str = ""
+    confidence: float = Field(default=0.6, ge=0, le=1)
+
+
 class AgentState(TypedDict, total=False):
     """Runtime state passed between LangGraph nodes."""
 
@@ -65,6 +79,7 @@ class AgentState(TypedDict, total=False):
     current_time: str
     current_time_context: str
     task_analysis: TaskAnalysis
+    task_brief: TaskBrief
     route: Route
     status: AgentStatus
     missing_info: list[str]
@@ -80,6 +95,8 @@ class AgentState(TypedDict, total=False):
     task_status: str
     task_steps: list[dict[str, Any]]
     tool_calls: list[dict[str, Any]]
+    debug_trace: list[dict[str, Any]]
+    agent_flow: dict[str, Any]
     final_response: str
     interrupt_type: InterruptType
     interrupt_id: str

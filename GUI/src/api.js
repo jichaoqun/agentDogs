@@ -16,13 +16,13 @@ async function request(path, options = {}) {
     headers,
   })
   if (!response.ok) {
-    let detail = `请求失败 (${response.status})`
+    let detail = `Request failed (${response.status})`
     try {
       const payload = await response.json()
       if (typeof payload.detail === 'string') {
         detail = payload.detail
       } else if (payload.detail?.message && payload.detail?.reason) {
-        detail = `${payload.detail.message}：${payload.detail.reason}`
+        detail = `${payload.detail.message}: ${payload.detail.reason}`
       } else {
         detail = payload.detail?.message || payload.detail?.reason || detail
       }

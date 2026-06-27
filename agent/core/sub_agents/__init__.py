@@ -22,55 +22,11 @@ def create_default_sub_agent_registry(
     task_agent = TaskAgent(file_agent, search_agent)
     registry = SubAgentRegistry()
     registry.register(
-        SubAgentSpec(
-            name="simple_chat",
-            description="普通问答、解释、闲聊和简单文本生成。",
-            capabilities=["chat", "explain", "rewrite", "translate"],
-            tools=[],
-            risk_level="low",
-        ),
+        simple_chat_agent.capability_spec() if simple_chat_agent is not None else SimpleChatAgent.capability_spec(),
         simple_chat_agent,
     )
-    registry.register(
-        SubAgentSpec(
-            name="simple_task",
-            description="明确、低风险、一步可完成的工具任务执行器。",
-            capabilities=["tool.route", "file.list", "file.read", "file.search", "file.info", "search.web"],
-            tools=["list_workspace_tree", "read_file", "workspace_search", "web_search", "file_info"],
-            risk_level="low",
-        ),
-        simple_task_agent,
-    )
-    registry.register(
-        SubAgentSpec(
-            name="search_agent",
-            description="workspace/关键词/联网搜索调度与结果汇总。",
-            capabilities=["search.workspace", "search.keyword", "search.web", "search.summarize"],
-            tools=["workspace_search", "keyword_search", "web_search"],
-            risk_level="low",
-        ),
-        search_agent,
-    )
-    registry.register(
-        SubAgentSpec(
-            name="file_agent",
-            description="workspace 文件读取、搜索和只读分析。",
-            capabilities=["file.read", "file.search", "file.analysis"],
-            tools=["list_workspace_tree", "read_file", "search_files", "file_info"],
-            risk_level="low",
-        ),
-        file_agent,
-    )
-    registry.register(
-        SubAgentSpec(
-            name="task_agent",
-            description="复杂任务计划步骤调度，第一版委派 FileAgent 和 SearchAgent。",
-            capabilities=["task.execute", "task.summarize", "step.track", "search.dispatch"],
-            tools=["file_agent", "search_agent"],
-            risk_level="medium",
-        ),
-        task_agent,
-    )
+    for agent in (simple_task_agent, search_agent, file_agent, task_agent):
+        registry.register(agent.capability_spec(), agent)
     return registry
 
 
