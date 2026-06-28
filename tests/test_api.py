@@ -14,7 +14,7 @@ api_app = importlib.import_module("agent.api.app")
 from agent.api.app import create_app
 from agent.api.sessions import SessionManager
 from agent.core.state import ClarificationQuestion, TaskAnalysis
-from agent.core.utils.llm_config import AppConfig, ProviderConfig
+from agent.core.utils.llm_config import AppConfig, CodeExecutionConfig, ProviderConfig
 from agent.core.utils.llm_models import ModelInvocationError, ModelResponse
 from agent.core.utils.time_utils import isoformat
 
@@ -371,6 +371,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("simple_task", agent_names)
         self.assertIn("file_agent", agent_names)
         self.assertIn("search_agent", agent_names)
+        self.assertIn("code_agent", agent_names)
         self.assertIn("task_agent", agent_names)
 
 
@@ -447,7 +448,32 @@ class FileApiTests(unittest.TestCase):
             self.assertEqual((api_app.WORKSPACE_ROOT / "upload.txt").read_text(encoding="utf-8"), "uploaded")
         else:
             self.assertEqual(response.status_code, 503)
-            self.assertIn("python-multipart", response.text)
+        self.assertIn("python-multipart", response.text)
+
+    def test_artifact_download_is_scoped_to_artifacts_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifacts = root / "artifacts"
+            run_dir = artifacts / "run-1"
+            run_dir.mkdir(parents=True)
+            (run_dir / "chart.png").write_bytes(b"png")
+            config = AppConfig(
+                "system",
+                10,
+                {name: ProviderConfig(enabled=name == "builtin") for name in ("api", "ollama", "builtin")},
+                Path("test.yaml"),
+                default_provider="builtin",
+                default_model="builtin",
+                code_execution=CodeExecutionConfig(artifacts_dir=str(artifacts)),
+            )
+            client = TestClient(api_app.create_app(config, SessionManager(config, agent_factory=FakeAgent)))
+
+            response = client.get("/api/v1/artifacts/run-1/chart.png")
+            escaped = client.get("/api/v1/artifacts/run-1/%2e%2e")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"png")
+        self.assertEqual(escaped.status_code, 400)
 
         (api_app.WORKSPACE_ROOT / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         response = self.client.get("/api/v1/files/raw", params={"path": "image.png"})

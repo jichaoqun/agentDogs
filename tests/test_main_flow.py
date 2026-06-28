@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -10,7 +11,7 @@ from langchain_core.messages import AIMessage
 
 from agent.core.main_agent import AgentInterruptError, AgentRunCancelled, MainAgent
 from agent.core.tools import ToolRegistry, ToolResult, ToolSpec, create_default_tool_registry, create_file_tool_registry
-from agent.core.utils.llm_config import AppConfig, ProviderConfig, load_config
+from agent.core.utils.llm_config import AppConfig, CodeExecutionConfig, ProviderConfig, load_config
 from agent.core.utils.llm_models import (
     GenerationOptions,
     ModelInfo,
@@ -458,6 +459,123 @@ class MainFlowTests(unittest.TestCase):
         self.assertIn("联网搜索未启用", result.content)
         self.assertEqual(len(fake.seen), 0)
 
+    def test_code_task_routes_to_code_agent_without_host_fallback(self):
+        config = make_config()
+        config.code_execution = CodeExecutionConfig(enabled=False)
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(config, manager)
+
+        result = agent.chat("用 Python 分析 data.csv")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
+        self.assertEqual(agent.last_state["task_brief"].intent, "data_analysis")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertIn("sandbox", result.content.lower())
+        self.assertTrue(any(item["agent"] == "CodeAgent" for item in agent.last_state["debug_trace"]))
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_excel_analysis_routes_to_code_agent(self):
+        config = make_config()
+        config.code_execution = CodeExecutionConfig(enabled=False)
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(config, manager)
+
+        result = agent.chat("分析 02.xlsx 表格数据")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
+        self.assertEqual(agent.last_state["task_brief"].intent, "data_analysis")
+        self.assertEqual(agent.last_state["task_brief"].context["path"], "02.xlsx")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertIn("sandbox", result.content.lower())
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_excel_chart_routes_to_code_agent(self):
+        config = make_config()
+        config.code_execution = CodeExecutionConfig(enabled=False)
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(config, manager)
+
+        result = agent.chat("生成 02.xlsx 的分析结果图")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
+        self.assertEqual(agent.last_state["task_brief"].intent, "chart_generation")
+        self.assertEqual(agent.last_state["task_brief"].context["path"], "02.xlsx")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertIn("sandbox", result.content.lower())
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_python_script_execution_routes_to_code_agent(self):
+        config = make_config()
+        config.code_execution = CodeExecutionConfig(enabled=False, allow_user_script_execution=True)
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(config, manager)
+
+        result = agent.chat("运行这段 Python 代码\n```python\nprint('hello')\n```")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
+        self.assertEqual(agent.last_state["task_brief"].intent, "script_execution")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertIn("sandbox", result.content.lower())
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_code_generation_routes_to_code_agent_without_sandbox(self):
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("帮我生成一个读取 csv 的脚本")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
+        self.assertEqual(agent.last_state["task_brief"].intent, "code_generation")
+        self.assertEqual(agent.last_state.get("tool_calls") or [], [])
+        self.assertIn("```python", result.content)
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_project_analysis_routes_to_code_agent(self):
+        config = make_config()
+        config.code_execution = CodeExecutionConfig(enabled=False)
+        manager, fake = make_manager(reply="must not be used")
+        agent = MainAgent(config, manager)
+
+        result = agent.chat("分析整个项目代码结构")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
+        self.assertEqual(agent.last_state["task_brief"].intent, "project_analysis")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertIn("sandbox", result.content.lower())
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_excel_analysis_with_workspace_write_routes_to_plan_confirmation(self):
+        manager, fake = make_manager(reply="not-json")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("帮我查看02.xlsx表格中的内容，并对他进行数据分析，将分析的结果图新建一个02_analys文件夹存放")
+
+        self.assertEqual(agent.last_state["route"], "future_task")
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "plan_confirmation")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
+        self.assertEqual(agent.last_state["task_brief"].context["path"], "02.xlsx")
+        self.assertIn("执行计划", result.content)
+        self.assertEqual(agent.last_state.get("tool_calls") or [], [])
+        self.assertEqual(len(fake.seen), 1)
+
+    def test_file_execution_request_never_falls_through_to_simple_chat(self):
+        manager, fake = make_manager(reply="我已经读取了 02.xlsx，并已保存图片。")
+        agent = MainAgent(make_config(), manager)
+
+        result = agent.chat("查看 02.xlsx 表格内容并分析")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertNotEqual(agent.last_state["task_brief"].delegate_to, "simple_chat")
+        self.assertNotIn("我已经读取了 02.xlsx", result.content)
+        self.assertEqual(len(fake.seen), 0)
+
     def test_complex_research_routes_to_future_task_plan(self):
         manager, fake = make_manager(reply="must not be used")
         agent = MainAgent(make_config(), manager)
@@ -548,12 +666,61 @@ class MainFlowTests(unittest.TestCase):
         )
 
         self.assertIn("计划已确认", result.content)
-        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn(agent.last_state["status"], {"completed", "interrupted"})
+        if agent.last_state["status"] == "interrupted":
+            self.assertEqual(agent.last_state["interrupt"]["type"], "workspace_confirmation")
         self.assertEqual(agent.last_state["plan_status"], "approved")
         self.assertIn(agent.last_state["task_status"], {"completed", "waiting_confirmation", "failed"})
         self.assertTrue(agent.last_state["task_steps"])
-        self.assertIsNone(agent.pending_interrupt)
+        if agent.last_state["status"] == "completed":
+            self.assertIsNone(agent.pending_interrupt)
         self.assertEqual(len(fake.seen), 1)
+
+    def test_workspace_write_waits_for_second_confirmation_after_plan_approval(self):
+        plan_reply = json.dumps(
+            {
+                "summary": "分析 Excel 并准备发布结果。",
+                "steps": [
+                    "定位并检查02.xlsx文件是否存在及可读性。",
+                    "在当前目录下新建名为02_analys的文件夹。",
+                ],
+                "risks": ["创建 workspace 目录需要二次确认。"],
+                "requires_confirmation": True,
+            },
+            ensure_ascii=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "02.xlsx").write_bytes(b"fake")
+            manager, fake = make_manager(reply=plan_reply)
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            agent.chat("帮我查看02.xlsx表格中的内容，并对他进行数据分析，将分析的结果图新建一个02_analys文件夹存放", thread_id="s-workspace")
+            plan_interrupt_id = agent.last_state["interrupt"]["id"]
+
+            waiting = agent.resume(
+                plan_interrupt_id,
+                {"type": "plan_confirmation", "decision": "approve"},
+                thread_id="s-workspace",
+            )
+
+            self.assertEqual(agent.last_state["status"], "interrupted")
+            self.assertEqual(agent.last_state["interrupt"]["type"], "workspace_confirmation")
+            self.assertIn("workspace 写入", waiting.content)
+            self.assertFalse((root / "02_analys").exists())
+            workspace_interrupt_id = agent.last_state["interrupt"]["id"]
+
+            done = agent.resume(
+                workspace_interrupt_id,
+                {"type": "workspace_confirmation", "decision": "approve"},
+                thread_id="s-workspace",
+            )
+
+            self.assertEqual(agent.last_state["status"], "completed")
+            self.assertTrue((root / "02_analys").is_dir())
+            self.assertIn("已创建或确认目录存在：02_analys", done.content)
+            self.assertIsNone(agent.pending_interrupt)
+            self.assertEqual(len(fake.seen), 1)
 
     def test_plan_cancel_completes_without_execution(self):
         manager, fake = make_manager(reply="not-json")
@@ -628,6 +795,24 @@ search:
   fetch_pages: 2
   timeout: 3
   user_agent: AgentDogsTest/0.1
+code_execution:
+  enabled: true
+  backend: docker
+  image: python:3.12-slim
+  timeout_seconds: 9
+  memory_limit: 256m
+  cpu_limit: 0.5
+  network_enabled: false
+  workspace_readonly: true
+  artifacts_dir: runtime/test-artifacts
+  max_output_chars: 5000
+  allow_user_script_execution: true
+  max_artifacts: 9
+  max_artifact_bytes: 123456
+  dependency_install:
+    enabled: true
+    timeout_seconds: 33
+    allowed_packages: [pandas, openpyxl]
 """
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config" / "llm.yaml"
@@ -644,6 +829,19 @@ search:
         self.assertEqual(config.search.fetch_pages, 2)
         self.assertEqual(config.search.timeout, 3.0)
         self.assertEqual(config.search.user_agent, "AgentDogsTest/0.1")
+        self.assertTrue(config.code_execution.enabled)
+        self.assertEqual(config.code_execution.image, "python:3.12-slim")
+        self.assertEqual(config.code_execution.timeout_seconds, 9)
+        self.assertEqual(config.code_execution.memory_limit, "256m")
+        self.assertEqual(config.code_execution.cpu_limit, 0.5)
+        self.assertEqual(config.code_execution.artifacts_dir, "runtime/test-artifacts")
+        self.assertEqual(config.code_execution.max_output_chars, 5000)
+        self.assertTrue(config.code_execution.allow_user_script_execution)
+        self.assertTrue(config.code_execution.dependency_install_enabled)
+        self.assertEqual(config.code_execution.allowed_packages, ["pandas", "openpyxl"])
+        self.assertEqual(config.code_execution.install_timeout_seconds, 33)
+        self.assertEqual(config.code_execution.max_artifacts, 9)
+        self.assertEqual(config.code_execution.max_artifact_bytes, 123456)
 
 
 if __name__ == "__main__":

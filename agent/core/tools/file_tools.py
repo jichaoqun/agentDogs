@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import mimetypes
 from pathlib import Path
+import shutil
 import zipfile
 import xml.etree.ElementTree as ET
 from typing import Any
@@ -112,6 +113,37 @@ class WorkspaceFileTools:
         except Exception as exc:
             return ToolResult.failure(str(exc))
 
+    def create_directory(self, payload: dict[str, Any] | None = None) -> ToolResult:
+        try:
+            target = self.resolve(str((payload or {}).get("path", "")), allow_root=False)
+            self.reject_trash_path(target)
+            target.mkdir(parents=True, exist_ok=True)
+            return ToolResult.success(
+                f"已创建目录：{self.relative_path(target)}",
+                data={"path": self.relative_path(target)},
+                artifacts=[self.relative_path(target)],
+            )
+        except Exception as exc:
+            return ToolResult.failure(str(exc))
+
+    def publish_artifact(self, payload: dict[str, Any] | None = None) -> ToolResult:
+        try:
+            data = payload or {}
+            source = self._resolve_artifact_source(str(data.get("source", "")))
+            target = self.resolve(str(data.get("target", "")), allow_root=False)
+            self.reject_trash_path(target)
+            if target.exists() and target.is_dir():
+                target = target / source.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            return ToolResult.success(
+                f"已发布 artifact：{self.relative_path(target)}",
+                data={"path": self.relative_path(target), "source": str(source)},
+                artifacts=[self.relative_path(target)],
+            )
+        except Exception as exc:
+            return ToolResult.failure(str(exc))
+
     def search_files(self, payload: dict[str, Any] | None = None) -> ToolResult:
         try:
             data = payload or {}
@@ -176,6 +208,22 @@ class WorkspaceFileTools:
         resolved = (self.root / candidate).resolve()
         if resolved != self.root and self.root not in resolved.parents:
             raise WorkspacePathError("路径超出 workspace")
+        return resolved
+
+    def _resolve_artifact_source(self, source: str) -> Path:
+        raw = (source or "").replace("\\", "/").strip()
+        if raw.startswith("/api/v1/artifacts/"):
+            run_id, filename = raw.removeprefix("/api/v1/artifacts/").split("/", 1)
+            raw = f"runtime/artifacts/{run_id}/{filename}"
+        candidate = Path(raw)
+        if candidate.is_absolute() or candidate.drive or ".." in candidate.parts:
+            raise WorkspacePathError("非法 artifact 路径")
+        resolved = (PROJECT_ROOT / candidate).resolve()
+        artifacts_root = (PROJECT_ROOT / "runtime" / "artifacts").resolve()
+        if resolved != artifacts_root and artifacts_root not in resolved.parents:
+            raise WorkspacePathError("artifact 路径超出 runtime/artifacts")
+        if not resolved.is_file():
+            raise WorkspaceFileError("artifact 不存在")
         return resolved
 
     def relative_path(self, path: Path) -> str:
@@ -281,6 +329,30 @@ def create_file_tool_registry(root: Path = DEFAULT_WORKSPACE_ROOT) -> ToolRegist
             capabilities=["file.write", "workspace.write"],
         ),
         tools.write_file,
+    )
+    registry.register(
+        ToolSpec(
+            name="create_directory",
+            description="在 workspace 内创建目录。高风险，执行前必须人工确认。",
+            input_schema={"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}},
+            risk_level="high",
+            capabilities=["file.mkdir", "workspace.write"],
+        ),
+        tools.create_directory,
+    )
+    registry.register(
+        ToolSpec(
+            name="publish_artifact",
+            description="把 runtime/artifacts 中的产物复制到 workspace。高风险，执行前必须人工确认。",
+            input_schema={
+                "type": "object",
+                "required": ["source", "target"],
+                "properties": {"source": {"type": "string"}, "target": {"type": "string"}},
+            },
+            risk_level="high",
+            capabilities=["artifact.publish", "workspace.write"],
+        ),
+        tools.publish_artifact,
     )
     registry.register(
         ToolSpec(

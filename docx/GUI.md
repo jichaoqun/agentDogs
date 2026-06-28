@@ -83,6 +83,17 @@ localStorage.setItem("agentDebugPanel", "false")
   - payload
   - ok/status
   - error
+- CodeAgent / 沙箱
+  - generated_code
+  - stdout
+  - stderr
+  - exit_code
+  - artifacts
+- TaskAgent / 复杂任务
+  - step_type
+  - assigned_agent
+  - pending_confirmations
+  - confirmation_payload
 - 最终输出
 - 原始 JSON
 

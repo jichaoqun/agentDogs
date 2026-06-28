@@ -29,5 +29,6 @@
 # 过滤掉model与workspace目录下的内容
 model/
 workspace/
+runtime/
 GUI/.pnpm-store
 GUI/.npm-cache

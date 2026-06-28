@@ -60,6 +60,7 @@ from agent.core.utils.time_utils import now_local, parse_datetime
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = PROJECT_ROOT / "GUI" / "dist"
 WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
+DEFAULT_ARTIFACTS_ROOT = PROJECT_ROOT / "runtime" / "artifacts"
 TRASH_DIR_NAME = ".trash"
 MAX_TEXT_BYTES = 2 * 1024 * 1024
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -140,6 +141,18 @@ def _safe_child_name(name: str) -> str:
     if Path(clean).drive:
         raise HTTPException(status_code=400, detail="非法名称")
     return clean
+
+
+def _resolve_artifact_path(root: Path, run_id: str, filename: str) -> Path:
+    clean_run_id = _safe_child_name(run_id)
+    clean_filename = _safe_child_name(filename)
+    artifacts_root = root.resolve()
+    target = (artifacts_root / clean_run_id / clean_filename).resolve()
+    if artifacts_root != target and artifacts_root not in target.parents:
+        raise HTTPException(status_code=400, detail="非法 artifact 路径")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="artifact 不存在")
+    return target
 
 
 def _file_node(path: Path) -> FileNodeOut:
@@ -374,6 +387,10 @@ def _session_out(session: ChatSession, include_messages: bool = True) -> Session
 def create_app(config: AppConfig | None = None, manager: SessionManager | None = None) -> FastAPI:
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
     active_config = config or load_config()
+    artifacts_root = Path(active_config.code_execution.artifacts_dir)
+    if not artifacts_root.is_absolute():
+        artifacts_root = (PROJECT_ROOT / artifacts_root).resolve()
+    artifacts_root.mkdir(parents=True, exist_ok=True)
     sessions = manager or SessionManager(active_config)
     application = FastAPI(title="agentDogs API", version="0.1.0")
     application.state.config = active_config
@@ -435,7 +452,7 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
     @application.get("/api/v1/agents", response_model=list[SubAgentInfoOut])
     def list_agents() -> list[SubAgentInfoOut]:
         tool_registry = create_default_tool_registry(WORKSPACE_ROOT, active_config.search)
-        registry = create_default_sub_agent_registry(tool_registry)
+        registry = create_default_sub_agent_registry(tool_registry, code_execution=active_config.code_execution)
         return [
             SubAgentInfoOut(
                 name=item.name,
@@ -518,6 +535,11 @@ def create_app(config: AppConfig | None = None, manager: SessionManager | None =
             media_type="application/octet-stream",
             filename=target.name,
         )
+
+    @application.get("/api/v1/artifacts/{run_id}/{filename}")
+    def artifact_file(run_id: str, filename: str) -> FileResponse:
+        target = _resolve_artifact_path(artifacts_root, run_id, filename)
+        return FileResponse(target, media_type=_mime_type(target), filename=target.name)
 
     @application.post("/api/v1/files", response_model=FileNodeOut, status_code=status.HTTP_201_CREATED)
     def create_file_item(payload: FileCreate) -> FileNodeOut:

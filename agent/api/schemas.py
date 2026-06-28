@@ -28,10 +28,11 @@ class TaskPlanOut(BaseModel):
 
 class AgentInterruptOut(BaseModel):
     id: str
-    type: Literal["clarification", "plan_confirmation"]
+    type: Literal["clarification", "plan_confirmation", "workspace_confirmation"]
     message: str
     clarification: ClarificationOut | None = None
     plan: TaskPlanOut | None = None
+    workspace_confirmation: dict | None = None
 
 
 class MessageOut(BaseModel):
@@ -76,7 +77,7 @@ class ChatRequest(BaseModel):
 
 class ResumeRequest(BaseModel):
     interrupt_id: str = Field(min_length=1)
-    type: Literal["clarification", "plan_confirmation"]
+    type: Literal["clarification", "plan_confirmation", "workspace_confirmation"]
     answers: dict[str, str] = Field(default_factory=dict)
     decision: Literal["approve", "revise", "cancel"] | None = None
     feedback: str | None = None

@@ -14,6 +14,7 @@ from ..utils.llm_models import (
     ModelResponse,
     ModelSelection,
 )
+from ..utils.prompt import build_simple_chat_system_prompt
 from .registry import SubAgentSpec
 
 
@@ -50,9 +51,7 @@ class SimpleChatAgent:
         options: GenerationOptions | None = None,
         current_time: str = "",
     ) -> ModelResponse:
-        system_prompt = self.config.system_prompt
-        if current_time:
-            system_prompt = f"{system_prompt}\n\n{current_time}"
+        system_prompt = build_simple_chat_system_prompt(self.config.system_prompt, current_time)
         messages = [
             SystemMessage(content=system_prompt),
             *self.history.messages,

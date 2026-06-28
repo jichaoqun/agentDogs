@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from .prompt import DEFAULT_SYSTEM_PROMPT
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "llm.yaml"
@@ -43,6 +45,34 @@ class SearchConfig:
 
 
 @dataclass(slots=True)
+class CodeExecutionConfig:
+    enabled: bool = False
+    backend: str = "docker"
+    image: str = "python:3.11-slim"
+    timeout_seconds: int = 20
+    memory_limit: str = "512m"
+    cpu_limit: float = 1.0
+    network_enabled: bool = False
+    workspace_readonly: bool = True
+    artifacts_dir: str = "runtime/artifacts"
+    max_output_chars: int = 12_000
+    dependency_install_enabled: bool = False
+    allowed_packages: list[str] = field(default_factory=lambda: [
+        "pandas",
+        "numpy",
+        "openpyxl",
+        "matplotlib",
+        "seaborn",
+        "scipy",
+        "scikit-learn",
+    ])
+    install_timeout_seconds: int = 120
+    max_artifacts: int = 20
+    max_artifact_bytes: int = 25 * 1024 * 1024
+    allow_user_script_execution: bool = False
+
+
+@dataclass(slots=True)
 class AppConfig:
     system_prompt: str
     max_history_messages: int
@@ -51,6 +81,7 @@ class AppConfig:
     default_provider: str = "builtin"
     default_model: str = "builtin"
     search: SearchConfig = field(default_factory=SearchConfig)
+    code_execution: CodeExecutionConfig = field(default_factory=CodeExecutionConfig)
 
 
 def _expand_env(value: Any) -> Any:
@@ -107,6 +138,52 @@ def _search_config(data: dict[str, Any] | None) -> SearchConfig:
     )
 
 
+def _code_execution_config(data: dict[str, Any] | None) -> CodeExecutionConfig:
+    source = data or {}
+    if not isinstance(source, dict):
+        raise ConfigError("code_execution must be an object")
+    backend = str(source.get("backend", "docker")).lower()
+    if backend != "docker":
+        raise ConfigError("code_execution.backend only supports docker")
+    timeout = max(1, min(int(source.get("timeout_seconds", 20)), 300))
+    cpu_limit = max(0.1, min(float(source.get("cpu_limit", 1.0)), 8.0))
+    max_output = max(1_000, min(int(source.get("max_output_chars", 12_000)), 200_000))
+    dependency_install = source.get("dependency_install", {}) or {}
+    if not isinstance(dependency_install, dict):
+        raise ConfigError("code_execution.dependency_install must be an object")
+    allowed_packages = dependency_install.get("allowed_packages", source.get("allowed_packages"))
+    if allowed_packages is None:
+        allowed_packages = [
+            "pandas",
+            "numpy",
+            "openpyxl",
+            "matplotlib",
+            "seaborn",
+            "scipy",
+            "scikit-learn",
+        ]
+    if not isinstance(allowed_packages, list):
+        raise ConfigError("code_execution.allowed_packages must be a list")
+    return CodeExecutionConfig(
+        enabled=bool(source.get("enabled", False)),
+        backend=backend,
+        image=str(source.get("image", "python:3.11-slim")),
+        timeout_seconds=timeout,
+        memory_limit=str(source.get("memory_limit", "512m")),
+        cpu_limit=cpu_limit,
+        network_enabled=bool(source.get("network_enabled", False)),
+        workspace_readonly=bool(source.get("workspace_readonly", True)),
+        artifacts_dir=str(source.get("artifacts_dir", "runtime/artifacts")),
+        max_output_chars=max_output,
+        dependency_install_enabled=bool(dependency_install.get("enabled", source.get("dependency_install_enabled", False))),
+        allowed_packages=[str(item) for item in allowed_packages],
+        install_timeout_seconds=max(1, min(int(dependency_install.get("timeout_seconds", source.get("install_timeout_seconds", 120))), 600)),
+        max_artifacts=max(1, min(int(source.get("max_artifacts", 20)), 200)),
+        max_artifact_bytes=max(1024, min(int(source.get("max_artifact_bytes", 25 * 1024 * 1024)), 1024 * 1024 * 1024)),
+        allow_user_script_execution=bool(source.get("allow_user_script_execution", False)),
+    )
+
+
 def load_config(path: str | Path | None = None) -> AppConfig:
     source = Path(path or os.getenv("AGENT_LLM_CONFIG", DEFAULT_CONFIG_PATH)).resolve()
     if not source.is_file():
@@ -146,11 +223,12 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     if max_history < 2:
         raise ConfigError("history.max_messages 不能小于 2")
     return AppConfig(
-        system_prompt=str(raw.get("system_prompt", "你是一个专业、可靠的智能助手。")),
+        system_prompt=str(raw.get("system_prompt", DEFAULT_SYSTEM_PROMPT)),
         max_history_messages=max_history,
         providers=providers,
         source=source,
         default_provider=default_provider,
         default_model=default_model,
         search=_search_config(raw.get("search")),
+        code_execution=_code_execution_config(raw.get("code_execution")),
     )

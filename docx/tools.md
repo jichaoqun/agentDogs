@@ -33,6 +33,8 @@ Tools 是 Agent Dogs 的基础能力层，只负责原子操作，不承担复�
 - `list_workspace_tree`: 列出 workspace 文件树。
 - `read_file`: 读取文本类文件和 DOCX 纯文本。
 - `write_file`: 写入文本文件，高风险工具，当前不会被普通 Agent 静默执行。
+- `create_directory`: 在 workspace 内创建目录，高风险工具，必须二次确认后才能执行。
+- `publish_artifact`: 把 `runtime/artifacts` 中的产物发布到 workspace，高风险工具，必须二次确认后才能执行。
 - `search_files`: 按文件名和文本内容搜索 workspace。
 - `file_info`: 查看文件或目录元信息。
 
@@ -43,6 +45,8 @@ Tools 是 Agent Dogs 的基础能力层，只负责原子操作，不承担复�
 - 默认禁止直接操作 `workspace/.trash`。
 - 文本读取有大小限制。
 - 写入类工具标记为 `high` 风险，必须进入人工确认或后续审批流程。
+- `publish_artifact` 只允许从 `runtime/artifacts/` 复制产物，不能从任意宿主机路径复制文件。
+- 未二次确认前，TaskAgent 只会生成 `pending_confirmations`，不会调用 `create_directory` 或 `publish_artifact`。
 
 ## 搜索工具
 
@@ -142,9 +146,61 @@ $env:AGENT_WEB_SEARCH_ENABLED = "1"
 
 后续会逐步把搜索能力迁移给 `SearchAgent`，文件能力迁移给 `FileAgent`。
 
+### CodeAgent
+
+处理需要代码能力完成的任务，可使用 Docker 沙箱执行 Python。
+
+第一阶段能力：
+
+- 数据分析：读取 CSV/Excel/JSON/TXT/MD 并输出统计摘要、缺失值、类型推断、相关性和类别分布。
+- 图表生成：生成图片到 artifacts 目录。
+- 代码结构分析：读取代码文件并提取类、函数、导入或关键词结构。
+- 项目结构分析：只读扫描 workspace 项目结构、关键文件和文件类型。
+- 代码生成：只生成代码文本，不执行、不写 workspace。
+- 脚本执行：用户明确要求时，在 Docker 沙箱中执行 Python 脚本。
+
+安全规则：
+
+- 不执行宿主机 Python。
+- 不执行任意 shell。
+- Docker 不可用时不 fallback。
+- workspace 只读。
+- artifacts 目录可写。
+- 默认无网络，只有运行时依赖安装开启且任务需要依赖时才打开网络。
+- 运行时依赖安装受 allowlist 限制。
+- 用户脚本执行需要显式启用配置。
+
+配置：
+
+```yaml
+code_execution:
+  enabled: false
+  backend: docker
+  image: python:3.11-slim
+  timeout_seconds: 20
+  memory_limit: 512m
+  cpu_limit: 1
+  network_enabled: false
+  workspace_readonly: true
+  artifacts_dir: runtime/artifacts
+  max_output_chars: 12000
+  allow_user_script_execution: false
+  dependency_install:
+    enabled: false
+    allowed_packages: [pandas, numpy, openpyxl, matplotlib, seaborn, scipy, scikit-learn]
+```
+
 ### TaskAgent
 
-复杂任务第一阶段执行器。当前只执行低风险只读步骤，遇到写文件、删除、命令执行等高风险动作会标记为 `waiting_confirmation`。
+复杂任务第一阶段执行协调器。它接收用户已确认的计划步骤，然后按步骤分类并委派：
+
+- `file_read`: 调用 `FileAgent`。
+- `search`: 调用 `SearchAgent`。
+- `data_analysis` / `chart_generation` / `code_analysis`: 调用 `CodeAgent`。
+- `manual_review`: 记录为执行策略或上下文。
+- `workspace_write`: 不直接执行，返回 `waiting_confirmation`。
+
+TaskAgent 会保留共享上下文，例如已识别的 `02.xlsx`、CodeAgent 生成的 artifacts、前序分析摘要。对于“分析 Excel 并把图表存到 02_analys 文件夹”这类任务，它会先完成沙箱分析和 artifact 生成，再把创建目录、发布 artifact 到 workspace 的动作放入 `pending_confirmations`。
 
 ## 工具调用调试
 

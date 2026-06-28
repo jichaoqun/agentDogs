@@ -15,7 +15,7 @@ Route = Literal["simple_chat", "simple_task", "clarify", "future_task"]
 TaskKind = Literal["chat", "tool", "task", "unknown"]
 TaskRiskLevel = Literal["low", "medium", "high"]
 AgentStatus = Literal["completed", "interrupted"]
-InterruptType = Literal["clarification", "plan_confirmation"]
+InterruptType = Literal["clarification", "plan_confirmation", "workspace_confirmation"]
 PlanDecision = Literal["approve", "revise", "cancel"]
 PlanStatus = Literal["pending", "approved", "revised", "cancelled"]
 
@@ -94,6 +94,7 @@ class AgentState(TypedDict, total=False):
     plan_status: PlanStatus
     task_status: str
     task_steps: list[dict[str, Any]]
+    pending_confirmations: list[dict[str, Any]]
     tool_calls: list[dict[str, Any]]
     debug_trace: list[dict[str, Any]]
     agent_flow: dict[str, Any]

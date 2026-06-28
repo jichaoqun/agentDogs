@@ -346,9 +346,12 @@ function AgentFlowPanel({ flow }) {
               <span>{agent.status || 'unknown'}</span>
             </summary>
             <DebugLine label="类型" value={agent.type} />
+            <DebugLine label="步骤" value={agent.stepIndex} />
+            <DebugLine label="步骤类型" value={agent.stepType} />
             <DebugLine label="说明" value={agent.description} />
             <DebugLine label="能力" value={agent.capabilities} />
             <DebugJson value={{
+              stage: agent.stage,
               input: agent.input,
               output: agent.output,
               error: agent.error,
@@ -425,7 +428,7 @@ function AgentDebugPanel({ message }) {
   )
 }
 
-function Message({ message, onClarify, onPlan, canResume, showDebugPanel }) {
+function Message({ message, onClarify, onPlan, onWorkspaceConfirm, canResume, showDebugPanel }) {
   const assistant = message.role === 'assistant'
   const interrupt = message.interrupt
   const time = formatMessageTime(message.created_at)
@@ -457,6 +460,11 @@ function Message({ message, onClarify, onPlan, canResume, showDebugPanel }) {
         {assistant && canResume && interrupt?.type === 'plan_confirmation' ? (
           <button type="button" className="clarify-open" onClick={() => onPlan(interrupt)}>
             查看计划
+          </button>
+        ) : null}
+        {assistant && canResume && interrupt?.type === 'workspace_confirmation' ? (
+          <button type="button" className="clarify-open" onClick={() => onWorkspaceConfirm(interrupt)}>
+            确认写入
           </button>
         ) : null}
         {showDebug ? <AgentDebugPanel message={message} /> : null}
@@ -639,6 +647,57 @@ function PlanDialog({ interrupt, feedback, onFeedback, onClose, onApprove, onRev
   )
 }
 
+function WorkspaceConfirmDialog({ interrupt, onClose, onApprove, onCancel, disabled }) {
+  const payload = interrupt?.workspace_confirmation
+  if (!payload) return null
+  const confirmations = Array.isArray(payload.confirmations) ? payload.confirmations : []
+  const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : []
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="clarify-modal plan-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-confirm-title">
+        <div className="clarify-header">
+          <div>
+            <strong id="workspace-confirm-title">确认 workspace 写入</strong>
+            <span>这些动作会创建目录或把 artifacts 发布到 workspace</span>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭 workspace 写入确认弹窗"><X size={18} /></button>
+        </div>
+        <div className="plan-body">
+          <section className="plan-section">
+            <span>待确认动作</span>
+            <ol>
+              {confirmations.map((item, index) => (
+                <li key={`${index}-${item.action || 'action'}`}>
+                  <strong>{item.action || 'workspace_write'}</strong>
+                  {item.target_directory ? <span> -> {item.target_directory}</span> : null}
+                  <p>{item.step}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
+          <section className="plan-section">
+            <span>可发布 artifacts</span>
+            {artifacts.length ? (
+              <ul>
+                {artifacts.map((item, index) => (
+                  <li key={`${index}-${item.path || item.filename}`}>{item.filename || item.path || item.url}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>当前没有可发布的 artifacts。通常需要先解决 CodeAgent/Docker 执行失败后再发布图表。</p>
+            )}
+          </section>
+        </div>
+        <div className="clarify-actions plan-actions">
+          <button type="button" onClick={onCancel} disabled={disabled}>取消写入</button>
+          <button type="button" className="primary" onClick={onApprove} disabled={disabled}>确认执行写入</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function FileTreeNode({ node, depth, selectedPath, expandedDirs, onToggle, onSelect }) {
   const directory = node.type === 'directory'
   const expanded = directory && expandedDirs.has(node.path)
@@ -698,6 +757,7 @@ export default function App() {
   const [clarifyAnswers, setClarifyAnswers] = useState({})
   const [planDialog, setPlanDialog] = useState(null)
   const [planFeedback, setPlanFeedback] = useState('')
+  const [workspaceDialog, setWorkspaceDialog] = useState(null)
   const [fileTree, setFileTree] = useState(null)
   const [expandedDirs, setExpandedDirs] = useState(new Set(['']))
   const [selectedFile, setSelectedFile] = useState(null)
@@ -805,6 +865,8 @@ export default function App() {
       openClarification(interrupt)
     } else if (interrupt?.type === 'plan_confirmation') {
       openPlan(interrupt)
+    } else if (interrupt?.type === 'workspace_confirmation') {
+      setWorkspaceDialog(interrupt)
     }
   }
 
@@ -926,6 +988,23 @@ export default function App() {
         type: 'plan_confirmation',
         decision,
         feedback,
+      },
+      userText,
+    )
+  }
+
+  async function submitWorkspaceDecision(decision) {
+    if (!workspaceDialog || busy) return
+    const interrupt = workspaceDialog
+    const userText = decision === 'approve'
+      ? '确认执行 workspace 写入动作。'
+      : '取消 workspace 写入动作。'
+    setWorkspaceDialog(null)
+    await resumeAgent(
+      {
+        interrupt_id: interrupt.id,
+        type: 'workspace_confirmation',
+        decision,
       },
       userText,
     )
@@ -1109,6 +1188,13 @@ export default function App() {
         onCancel={() => submitPlanDecision('cancel')}
         disabled={busy}
       />
+      <WorkspaceConfirmDialog
+        interrupt={workspaceDialog}
+        onClose={() => setWorkspaceDialog(null)}
+        onApprove={() => submitWorkspaceDecision('approve')}
+        onCancel={() => submitWorkspaceDecision('cancel')}
+        disabled={busy}
+      />
       <aside className="sidebar">
         <div className="brand-row">
           <div className="brand"><span className="brand-mark"><Bot size={20} /></span><span>Agent Dogs</span></div>
@@ -1197,6 +1283,7 @@ export default function App() {
                     message={message}
                     onClarify={openClarification}
                     onPlan={openPlan}
+                    onWorkspaceConfirm={setWorkspaceDialog}
                     canResume={index === latestPendingInterruptIndex}
                     showDebugPanel={debugPanelEnabled}
                   />

@@ -12,6 +12,31 @@ search:
   fetch_pages: 3
   timeout: 10
   user_agent: AgentDogs/0.1
+code_execution:
+  enabled: true
+  backend: docker
+  image: python:3.11-slim
+  timeout_seconds: 20
+  memory_limit: 512m
+  cpu_limit: 1
+  network_enabled: true
+  workspace_readonly: true
+  artifacts_dir: runtime/artifacts
+  max_output_chars: 12000
+  allow_user_script_execution: true
+  max_artifacts: 20
+  max_artifact_bytes: 26214400
+  dependency_install:
+    enabled: true
+    timeout_seconds: 120
+    allowed_packages:
+      - pandas
+      - numpy
+      - openpyxl
+      - matplotlib
+      - seaborn
+      - scipy
+      - scikit-learn
 providers:
   api:
     enabled: true
