@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..sandbox import DockerSandboxRunner
+from ..sandbox import OpenSandboxRunner
 from ..tools import ToolRegistry, create_default_tool_registry
 from ..utils.llm_config import CodeExecutionConfig
 from .code_agent import CodeAgent
@@ -22,7 +22,7 @@ def create_default_sub_agent_registry(
     tool_registry = tools or create_default_tool_registry()
     file_agent = FileAgent(tool_registry)
     search_agent = SearchAgent(tool_registry)
-    sandbox_runner = DockerSandboxRunner(code_execution or CodeExecutionConfig())
+    sandbox_runner = OpenSandboxRunner(code_execution or CodeExecutionConfig())
     code_agent = CodeAgent(tool_registry, sandbox_runner)
     simple_task_agent = SimpleTaskAgent(tool_registry, search_agent)
     task_agent = TaskAgent(file_agent, search_agent, code_agent)

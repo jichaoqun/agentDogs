@@ -8,5 +8,6 @@ langchain-community>=0.4,<1
 fastapi>=0.115,<1
 python-multipart>=0.0.20,<1
 uvicorn[standard]>=0.34,<1
+opensandbox>=0.1.13,<0.2
 # Only required by the built-in MiniCPM GGUF fallback.
 llama-cpp-python>=0.3.16,<1

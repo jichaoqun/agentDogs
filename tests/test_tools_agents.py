@@ -197,7 +197,7 @@ class ToolAndAgentTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertIn("CodeAgent 数据分析摘要", result.content)
         self.assertIn("/workspace", sandbox.code)
-        self.assertEqual(result.tool_calls[0]["tool"], "docker_sandbox")
+        self.assertEqual(result.tool_calls[0]["tool"], "code_sandbox")
 
     def test_code_agent_generates_excel_analysis_script(self):
         class FakeSandbox:
@@ -338,7 +338,7 @@ class ToolAndAgentTests(unittest.TestCase):
         )
 
         self.assertTrue(result.ok)
-        self.assertEqual(result.tool_calls[0]["tool"], "docker_sandbox")
+        self.assertEqual(result.tool_calls[0]["tool"], "code_sandbox")
         self.assertIn("print('hello')", sandbox.request.code)
         self.assertEqual(result.tool_calls[0]["payload"]["workspace"], "readonly")
 
@@ -483,7 +483,7 @@ class ToolAndAgentTests(unittest.TestCase):
                 return SubAgentResult.success(
                     "CodeAgent handled",
                     data={"artifacts": [{"filename": "chart.png", "url": "/api/v1/artifacts/run-1/chart.png"}]},
-                    tool_calls=[{"tool": "docker_sandbox", "payload": {"path": brief.context.get("path")}, "ok": True}],
+                    tool_calls=[{"tool": "code_sandbox", "payload": {"path": brief.context.get("path")}, "ok": True}],
                 )
 
         task_agent = TaskAgent(FileAgent(self.registry), SearchAgent(self.registry), FakeCodeAgent())
@@ -496,7 +496,7 @@ class ToolAndAgentTests(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.steps[0].assigned_agent, "CodeAgent")
         self.assertEqual(result.steps[1].assigned_agent, "CodeAgent")
-        self.assertEqual(result.tool_calls[0]["tool"], "docker_sandbox")
+        self.assertEqual(result.tool_calls[0]["tool"], "code_sandbox")
         self.assertEqual(result.artifacts[0]["filename"], "chart.png")
 
     def test_task_agent_classifies_workspace_write_as_confirmation(self):
@@ -507,7 +507,7 @@ class ToolAndAgentTests(unittest.TestCase):
                 return SubAgentResult.success(
                     "CodeAgent analyzed 02.xlsx",
                     data={"artifacts": [{"filename": "chart.png", "url": "/api/v1/artifacts/run-1/chart.png"}]},
-                    tool_calls=[{"tool": "docker_sandbox", "payload": {"path": brief.context.get("path")}, "ok": True}],
+                    tool_calls=[{"tool": "code_sandbox", "payload": {"path": brief.context.get("path")}, "ok": True}],
                 )
 
         task_agent = TaskAgent(FileAgent(self.registry), SearchAgent(self.registry), FakeCodeAgent())
@@ -557,7 +557,7 @@ class ToolAndAgentTests(unittest.TestCase):
                     next_actions=["启用依赖安装或使用包含 openpyxl 的镜像。"],
                     tool_calls=[
                         {
-                            "tool": "docker_sandbox",
+                            "tool": "code_sandbox",
                             "payload": {"path": brief.context.get("path"), "task_type": brief.intent},
                             "ok": False,
                             "error": "Sandbox execution failed.",
@@ -591,7 +591,7 @@ class ToolAndAgentTests(unittest.TestCase):
                     data={"artifacts": artifacts},
                     tool_calls=[
                         {
-                            "tool": "docker_sandbox",
+                            "tool": "code_sandbox",
                             "payload": {"path": brief.context.get("path"), "task_type": brief.intent},
                             "ok": True,
                         }

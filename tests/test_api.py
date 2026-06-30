@@ -448,7 +448,7 @@ class FileApiTests(unittest.TestCase):
             self.assertEqual((api_app.WORKSPACE_ROOT / "upload.txt").read_text(encoding="utf-8"), "uploaded")
         else:
             self.assertEqual(response.status_code, 503)
-        self.assertIn("python-multipart", response.text)
+            self.assertIn("python-multipart", response.text)
 
     def test_artifact_download_is_scoped_to_artifacts_root(self):
         with tempfile.TemporaryDirectory() as directory:

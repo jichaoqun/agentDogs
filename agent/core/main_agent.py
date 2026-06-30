@@ -752,7 +752,7 @@ class MainAgent(AgentRoutingMixin, AgentDebugMixin, AgentResponseSynthesizerMixi
                         continue
                 if not artifacts:
                     ok = False
-                    lines.append(f"- 没有可发布的 artifacts，因此未向 {target_dir} 写入图表文件。请先解决 CodeAgent/Docker 执行失败。")
+                    lines.append(f"- 没有可发布的 artifacts，因此未向 {target_dir} 写入图表文件。请先解决 CodeAgent/OpenSandbox 执行失败。")
                     continue
                 for artifact in artifacts:
                     source = str(artifact.get("path") or "").strip()

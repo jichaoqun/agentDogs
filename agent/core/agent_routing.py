@@ -220,7 +220,7 @@ class AgentRoutingMixin:
             constraints.append("需要使用新鲜外部信息，不能只依赖模型历史知识。")
         if self._is_code_task(text):
             constraints.extend([
-                "必须在 Docker 沙箱执行，不能回退到宿主机 Python。",
+                "必须在 OpenSandbox 沙箱执行，不能回退到宿主机 Python。",
                 "workspace 只读，输出只能写入 artifacts。",
                 "默认不允许联网或安装依赖。",
             ])
@@ -357,7 +357,7 @@ class AgentRoutingMixin:
                 reason="任务包含数据/代码执行以及保存、新建或写入产物要求，需要先确认计划，避免未经确认写入 workspace。",
                 suggested_steps=[
                     "确认输入表格路径、分析目标和预期图表类型。",
-                    "在 Docker 沙箱中读取表格并生成数据摘要。",
+                    "在 OpenSandbox 沙箱中读取表格并生成数据摘要。",
                     "在 artifacts 中生成分析图表，并返回可下载路径。",
                     "如需写入 workspace 指定目录，先请求用户确认输出位置和覆盖策略。",
                 ],
@@ -373,7 +373,7 @@ class AgentRoutingMixin:
                 risk_level="medium",
                 requires_confirmation=False,
                 confidence=0.84,
-                reason="这是可由 CodeAgent 在 Docker 沙箱中处理的代码、数据或图表任务。",
+                reason="这是可由 CodeAgent 在 OpenSandbox 沙箱中处理的代码、数据或图表任务。",
             )
         if self._has_missing_target(text):
             return TaskAnalysis(

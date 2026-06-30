@@ -14,7 +14,7 @@ search:
   user_agent: AgentDogs/0.1
 code_execution:
   enabled: true
-  backend: docker
+  backend: opensandbox
   image: python:3.11-slim
   timeout_seconds: 20
   memory_limit: 512m
@@ -26,6 +26,13 @@ code_execution:
   allow_user_script_execution: true
   max_artifacts: 20
   max_artifact_bytes: 26214400
+  opensandbox:
+    domain: ${OPENSANDBOX_DOMAIN:-127.0.0.1:8080}
+    protocol: ${OPENSANDBOX_PROTOCOL:-http}
+    api_key: ${OPENSANDBOX_API_KEY:-}
+    request_timeout_seconds: 60
+    use_server_proxy: false
+    ready_timeout_seconds: 30
   dependency_install:
     enabled: true
     timeout_seconds: 120

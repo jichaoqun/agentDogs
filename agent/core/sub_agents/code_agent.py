@@ -1,4 +1,4 @@
-"""Code-capable sub-agent backed by a Docker sandbox."""
+"""Code-capable sub-agent backed by a sandbox runner."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any
 
-from ..sandbox import DockerSandboxRunner, SandboxRunRequest, SandboxRunResult
+from ..sandbox import SandboxRunner, SandboxRunRequest, SandboxRunResult
 from ..state import TaskBrief
 from ..tools import ToolRegistry
 from .registry import SubAgentResult, SubAgentSpec
@@ -41,9 +41,9 @@ class CodeAgent:
 
     CAPABILITY = SubAgentSpec(
         name="code_agent",
-        description="在 Docker 沙箱中使用代码完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。",
+        description="在 OpenSandbox 沙箱中使用代码完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。",
         handles=["数据分析", "图表生成", "代码结构分析", "项目结构分析", "代码生成", "用户 Python 脚本沙箱执行"],
-        does_not_handle=["未确认的 workspace 写入", "宿主机命令执行", "删除或重命名文件", "绕过 Docker 沙箱的执行", "非 Python 运行时执行"],
+        does_not_handle=["未确认的 workspace 写入", "宿主机命令执行", "删除或重命名文件", "绕过 OpenSandbox 沙箱的执行", "非 Python 运行时执行"],
         capabilities=[
             "code.execute.sandboxed",
             "data.analyze",
@@ -53,7 +53,7 @@ class CodeAgent:
             "code.generate",
             "script.execute",
         ],
-        tools=["docker_sandbox", "read_file", "search_files"],
+        tools=["code_sandbox", "read_file", "search_files"],
         input_contract={"type": "TaskBrief", "fields": ["intent", "user_goal", "context", "constraints", "expected_output"]},
         output_contract={"type": "SubAgentResult", "fields": ["summary", "findings", "evidence", "artifacts", "stdout", "stderr", "tool_calls"]},
         risk_level="medium",
@@ -67,7 +67,7 @@ class CodeAgent:
     )
 
     tools: ToolRegistry
-    sandbox: DockerSandboxRunner
+    sandbox: SandboxRunner
 
     @classmethod
     def capability_spec(cls) -> SubAgentSpec:
@@ -111,8 +111,10 @@ class CodeAgent:
         request = SandboxRunRequest(
             code=code,
             timeout_seconds=self._timeout_for_task(task),
+            input_files=self._input_files_for_task(task),
             dependencies=task.dependencies,
             network_required=bool(task.dependencies),
+            sync_workspace=task.task_type in {"project_analysis", "script_execution"},
         )
         sandbox_result = self._run_sandbox(request)
         tool_call = self._sandbox_tool_call(task, sandbox_result)
@@ -502,6 +504,11 @@ print('CodeAgent 用户脚本执行结束')
             return self._unique([*dependencies, "openpyxl"])
         return []
 
+    def _input_files_for_task(self, task: CodeTask) -> list[str]:
+        if task.task_type in {"project_analysis", "script_execution"}:
+            return task.paths
+        return task.paths or ([task.path] if task.path else [])
+
     def _execution_mode_from_text(self, text: str) -> str:
         if self._looks_like_script_execution(text):
             return "execute"
@@ -562,17 +569,18 @@ print('CodeAgent 用户脚本执行结束')
     def _next_actions_for_failure(self, result: SandboxRunResult) -> list[str]:
         error = result.error or ""
         if "Dependency installation is disabled" in error:
-            return ["在 config/llm.yaml 中启用 code_execution.dependency_install.enabled，或换用已包含依赖的 Docker 镜像。"]
+            return ["在 config/llm.yaml 中启用 code_execution.dependency_install.enabled，或换用已包含依赖的 OpenSandbox 镜像。"]
         if "Dependency is not allowed" in error:
             return ["把需要的包加入 code_execution.dependency_install.allowed_packages，确认风险后再执行。"]
-        if "Docker is not available" in error:
-            return ["确认 Docker 已安装并运行。"]
+        if "OpenSandbox" in error:
+            return ["确认 OpenSandbox Server 已启动，并检查 code_execution.opensandbox 的 domain/protocol/api_key 配置。"]
         return ["查看调试信息中的 stdout/stderr，修正输入文件、依赖或脚本后重试。"]
 
     def _sandbox_tool_call(self, task: CodeTask, result: SandboxRunResult) -> dict[str, Any]:
         return {
-            "tool": "docker_sandbox",
+            "tool": "code_sandbox",
             "payload": {
+                "backend": "opensandbox",
                 "task_type": task.task_type,
                 "path": task.path,
                 "paths": task.paths,

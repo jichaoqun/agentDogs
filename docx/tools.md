@@ -148,7 +148,7 @@ $env:AGENT_WEB_SEARCH_ENABLED = "1"
 
 ### CodeAgent
 
-处理需要代码能力完成的任务，可使用 Docker 沙箱执行 Python。
+处理需要代码能力完成的任务，可使用 OpenSandbox 沙箱执行 Python。
 
 第一阶段能力：
 
@@ -157,13 +157,13 @@ $env:AGENT_WEB_SEARCH_ENABLED = "1"
 - 代码结构分析：读取代码文件并提取类、函数、导入或关键词结构。
 - 项目结构分析：只读扫描 workspace 项目结构、关键文件和文件类型。
 - 代码生成：只生成代码文本，不执行、不写 workspace。
-- 脚本执行：用户明确要求时，在 Docker 沙箱中执行 Python 脚本。
+- 脚本执行：用户明确要求时，在 OpenSandbox 沙箱中执行 Python 脚本。
 
 安全规则：
 
 - 不执行宿主机 Python。
 - 不执行任意 shell。
-- Docker 不可用时不 fallback。
+- OpenSandbox Server 不可用时不 fallback。
 - workspace 只读。
 - artifacts 目录可写。
 - 默认无网络，只有运行时依赖安装开启且任务需要依赖时才打开网络。
@@ -175,7 +175,7 @@ $env:AGENT_WEB_SEARCH_ENABLED = "1"
 ```yaml
 code_execution:
   enabled: false
-  backend: docker
+  backend: opensandbox
   image: python:3.11-slim
   timeout_seconds: 20
   memory_limit: 512m
@@ -185,6 +185,11 @@ code_execution:
   artifacts_dir: runtime/artifacts
   max_output_chars: 12000
   allow_user_script_execution: false
+  opensandbox:
+    domain: ${OPENSANDBOX_DOMAIN:-127.0.0.1:8080}
+    protocol: ${OPENSANDBOX_PROTOCOL:-http}
+    api_key: ${OPENSANDBOX_API_KEY:-}
+    request_timeout_seconds: 60
   dependency_install:
     enabled: false
     allowed_packages: [pandas, numpy, openpyxl, matplotlib, seaborn, scipy, scikit-learn]

@@ -16,7 +16,7 @@ Agent Dogs 当前采用“MainAgent 任务理解与编排 + 子 Agent 领域自�
 - `SimpleChatAgent`：纯聊天和简单文本生成，不调用工具。
 - `SearchAgent`：处理 workspace、关键词和联网搜索任务。
 - `FileAgent`：处理 workspace 文件读取、文件搜索、只读分析和摘要。
-- `CodeAgent`：在 Docker 沙箱中用 Python 完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。
+- `CodeAgent`：在 OpenSandbox 沙箱中用 Python 完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。
 - `SimpleTaskAgent`：兼容层，保留一步低风险工具任务能力。
 - `TaskAgent`：复杂任务计划确认后的第一阶段执行协调器，按步骤分类、委派 File/Search/Code 子 Agent、复用上下文，并把 workspace 写入动作转为二次确认。
 
@@ -243,17 +243,17 @@ finalize
 - `code_analysis`: 对 Python/JS/TS/JSON/YAML/HTML/CSS 等文件做结构分析。
 - `project_analysis`: 对 workspace 项目做只读结构扫描、依赖/入口线索识别和文件类型统计。
 - `code_generation`: 只返回代码文本，不落盘、不执行。
-- `script_execution`: 用户明确要求运行 Python 代码时，在 Docker 沙箱中执行。
+- `script_execution`: 用户明确要求运行 Python 代码时，在 OpenSandbox 沙箱中执行。
 - `notebook_like_analysis`: 执行分析脚本并返回 stdout、summary 和 artifacts。
 
 安全边界：
 
-- 只使用 Docker 沙箱。
-- Docker 不可用或 `code_execution.enabled=false` 时返回明确失败。
+- 只使用 OpenSandbox 沙箱。
+- OpenSandbox Server 不可用或 `code_execution.enabled=false` 时返回明确失败。
 - 不 fallback 到宿主机 Python。
 - workspace 只读挂载到 `/workspace`。
 - 输出只写入 `runtime/artifacts/<run_id>/`。
-- 默认无网络；仅当依赖安装启用且当前任务需要安装依赖时打开 Docker network。
+- 默认无网络；仅当依赖安装启用且当前任务需要安装依赖时打开 OpenSandbox network。
 - 运行时依赖安装必须显式开启，并受 `allowed_packages` allowlist 限制。
 - 用户脚本执行必须显式开启 `allow_user_script_execution`。
 - 限制 CPU、内存、超时和 stdout/stderr 长度。
@@ -279,7 +279,7 @@ Excel 行为：
 - `生成 02.xlsx 的分析结果图` 会进入 `CodeAgent`，`TaskBrief.intent = chart_generation`。
 - `帮我查看02.xlsx表格中的内容，并对他进行数据分析，将分析的结果图新建一个02_analys文件夹存放` 会进入 `future_task` 计划确认，因为它要求写入 workspace 指定目录。
 - 当前图表默认写入 artifacts，不直接创建 workspace 下的 `02_analys`。
-- Docker 镜像缺少 `openpyxl` 或 `matplotlib` 时，必须返回明确失败，不能编造表格内容或图片。
+- OpenSandbox 镜像缺少 `openpyxl` 或 `matplotlib` 时，必须返回明确失败，不能编造表格内容或图片。
 
 ## TaskAgent 第一阶段执行
 
@@ -460,7 +460,7 @@ API 返回字段：
 
 - 写文件、删除、重命名、命令执行等高风险能力不会静默执行。
 - `web_search` 依赖 `config/llm.yaml` 的 `search.enabled`。
-- `CodeAgent` 依赖 `config/llm.yaml` 的 `code_execution.enabled` 和本机 Docker。
+- `CodeAgent` 依赖 `config/llm.yaml` 的 `code_execution.enabled` 和OpenSandbox Server。
 - DuckDuckGo HTML 搜索是 best-effort，可能受网络、页面结构和搜索源限制影响。
 - 天气等实时信息由搜索结果提取，无法保证等同官方气象接口。
 - 复杂任务的逐步评价和质量检查尚未完成。

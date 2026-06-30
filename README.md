@@ -1,6 +1,6 @@
 # Agent Dogs
 
-Agent Dogs 是一个本地运行的 Agent 助手项目，包含 FastAPI 后端、Vite + React 前端、可配置模型层、workspace 文件工具、搜索工具、Docker 沙箱 CodeAgent 和分层 Agent 调度。
+Agent Dogs 是一个本地运行的 Agent 助手项目，包含 FastAPI 后端、Vite + React 前端、可配置模型层、workspace 文件工具、搜索工具、OpenSandbox 沙箱 CodeAgent 和分层 Agent 调度。
 
 ## 当前核心能力
 
@@ -9,7 +9,7 @@ Agent Dogs 是一个本地运行的 Agent 助手项目，包含 FastAPI 后端�
 - 子 Agent 分工：`SimpleChatAgent`、`SearchAgent`、`FileAgent`、`CodeAgent`、`SimpleTaskAgent`、`TaskAgent`。
 - Workspace 工具：列目录、读文件、搜索文件、查看文件信息，以及二次确认后可用的创建目录、发布 artifact 到 workspace，默认限制在 `workspace/` 沙盒内。
 - 搜索工具：workspace 搜索、关键词搜索、可选联网搜索。
-- CodeAgent：可选 Docker 沙箱执行，用 Python 完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。
+- CodeAgent：可选 OpenSandbox 沙箱执行，用 Python 完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。
 - TaskAgent：复杂任务计划确认后的分步协调器，可复用上下文并把 workspace 写入动作转为二次确认。
 - 前端调试面板：可展开查看 MainAgent、SubAgent、Tools、TaskBrief、debug_trace、agent_flow、最终输出和原始 JSON。
 

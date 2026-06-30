@@ -45,9 +45,19 @@ class SearchConfig:
 
 
 @dataclass(slots=True)
+class OpenSandboxConfig:
+    domain: str = "127.0.0.1:8080"
+    protocol: str = "http"
+    api_key: str = ""
+    request_timeout_seconds: int = 60
+    use_server_proxy: bool = False
+    ready_timeout_seconds: int = 30
+
+
+@dataclass(slots=True)
 class CodeExecutionConfig:
     enabled: bool = False
-    backend: str = "docker"
+    backend: str = "opensandbox"
     image: str = "python:3.11-slim"
     timeout_seconds: int = 20
     memory_limit: str = "512m"
@@ -70,6 +80,7 @@ class CodeExecutionConfig:
     max_artifacts: int = 20
     max_artifact_bytes: int = 25 * 1024 * 1024
     allow_user_script_execution: bool = False
+    opensandbox: OpenSandboxConfig = field(default_factory=OpenSandboxConfig)
 
 
 @dataclass(slots=True)
@@ -142,9 +153,9 @@ def _code_execution_config(data: dict[str, Any] | None) -> CodeExecutionConfig:
     source = data or {}
     if not isinstance(source, dict):
         raise ConfigError("code_execution must be an object")
-    backend = str(source.get("backend", "docker")).lower()
-    if backend != "docker":
-        raise ConfigError("code_execution.backend only supports docker")
+    backend = str(source.get("backend", "opensandbox")).lower()
+    if backend != "opensandbox":
+        raise ConfigError("code_execution.backend only supports opensandbox")
     timeout = max(1, min(int(source.get("timeout_seconds", 20)), 300))
     cpu_limit = max(0.1, min(float(source.get("cpu_limit", 1.0)), 8.0))
     max_output = max(1_000, min(int(source.get("max_output_chars", 12_000)), 200_000))
@@ -164,6 +175,14 @@ def _code_execution_config(data: dict[str, Any] | None) -> CodeExecutionConfig:
         ]
     if not isinstance(allowed_packages, list):
         raise ConfigError("code_execution.allowed_packages must be a list")
+    opensandbox_source = source.get("opensandbox", {}) or {}
+    if not isinstance(opensandbox_source, dict):
+        raise ConfigError("code_execution.opensandbox must be an object")
+    opensandbox_protocol = str(opensandbox_source.get("protocol", "http")).lower()
+    if opensandbox_protocol not in {"http", "https"}:
+        raise ConfigError("code_execution.opensandbox.protocol must be http or https")
+    request_timeout = max(1, min(int(opensandbox_source.get("request_timeout_seconds", 60)), 600))
+    ready_timeout = max(1, min(int(opensandbox_source.get("ready_timeout_seconds", 30)), 300))
     return CodeExecutionConfig(
         enabled=bool(source.get("enabled", False)),
         backend=backend,
@@ -181,6 +200,14 @@ def _code_execution_config(data: dict[str, Any] | None) -> CodeExecutionConfig:
         max_artifacts=max(1, min(int(source.get("max_artifacts", 20)), 200)),
         max_artifact_bytes=max(1024, min(int(source.get("max_artifact_bytes", 25 * 1024 * 1024)), 1024 * 1024 * 1024)),
         allow_user_script_execution=bool(source.get("allow_user_script_execution", False)),
+        opensandbox=OpenSandboxConfig(
+            domain=str(opensandbox_source.get("domain", "127.0.0.1:8080")),
+            protocol=opensandbox_protocol,
+            api_key=str(opensandbox_source.get("api_key", "")),
+            request_timeout_seconds=request_timeout,
+            use_server_proxy=bool(opensandbox_source.get("use_server_proxy", False)),
+            ready_timeout_seconds=ready_timeout,
+        ),
     )
 
 

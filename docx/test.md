@@ -66,7 +66,7 @@ code_execution:
   enabled: true
 ```
 
-如果 Docker 不可用或 `code_execution.enabled=false`，CodeAgent 应返回明确失败，且不能回退到宿主机 Python。
+如果 OpenSandbox Server 不可用或 `code_execution.enabled=false`，CodeAgent 应返回明确失败，且不能回退到宿主机 Python。
 
 ## 自动化回归测试
 
@@ -85,7 +85,7 @@ python -m unittest discover -s tests -q
 - prompt 构造函数。
 - 文件读取路径提取。
 - SearchAgent 与 FileAgent。
-- CodeAgent Docker 沙箱、Excel 路由、图表 artifact。
+- CodeAgent OpenSandbox 沙箱、Excel 路由、图表 artifact。
 - TaskAgent 对 File/Search/Code 步骤的委派。
 
 ## 通用检查维度
@@ -272,7 +272,7 @@ python -m unittest discover -s tests -q
 
 ## Level 5：CodeAgent 数据分析
 
-### 5.1 Docker 未启用时的安全失败
+### 5.1 OpenSandbox 未启用时的安全失败
 
 前置条件：
 
@@ -292,7 +292,7 @@ code_execution:
 - `route = simple_task`
 - `TaskBrief.delegate_to = code_agent`
 - 子 Agent：`CodeAgent`
-- 工具调用：`docker_sandbox`
+- 工具调用：`code_sandbox`
 - 最终回答明确说明沙箱未启用或不可用。
 - 不能回退到宿主机 Python。
 
@@ -305,7 +305,7 @@ code_execution:
   enabled: true
 ```
 
-本机 Docker 可用。
+OpenSandbox Server 可用。
 
 用户输入：
 
@@ -317,7 +317,7 @@ code_execution:
 
 - `TaskBrief.intent = data_analysis`
 - `TaskBrief.delegate_to = code_agent`
-- CodeAgent 在 Docker 沙箱执行。
+- CodeAgent 在 OpenSandbox 沙箱执行。
 - workspace 只读。
 - 最终回答包含行数、列名、数值列统计等摘要。
 
@@ -346,7 +346,7 @@ code_execution:
 
 注意：
 
-- 如果 Docker 镜像缺少 `matplotlib`，应返回明确错误。
+- 如果 OpenSandbox 镜像缺少 `matplotlib`，应返回明确错误。
 - 不应编造图表已生成。
 
 ### 5.4 Excel 表格数据分析
@@ -363,7 +363,7 @@ code_execution:
 - `TaskBrief.delegate_to = code_agent`
 - `TaskBrief.intent = data_analysis`
 - `TaskBrief.context.path = 02.xlsx`
-- 工具调用：`docker_sandbox`
+- 工具调用：`code_sandbox`
 - 如果缺少 `openpyxl`，返回明确错误。
 - 不应进入 `SimpleChatAgent`。
 - 不应编造 Excel 内容。
@@ -457,7 +457,7 @@ code_execution:
 
 - `TaskBrief.delegate_to = code_agent`
 - `TaskBrief.intent = code_generation`
-- 不调用 `docker_sandbox`。
+- 不调用 `code_sandbox`。
 - 最终回答包含代码块。
 - 不写入 workspace。
 
@@ -484,7 +484,7 @@ print("hello")
 
 - `TaskBrief.intent = script_execution`
 - 子 Agent：`CodeAgent`
-- 工具调用：`docker_sandbox`
+- 工具调用：`code_sandbox`
 - workspace 只读。
 - 输出只能写入 `/artifacts`。
 - stdout 中包含 `hello`。
@@ -501,7 +501,7 @@ print("hello")
 
 - `TaskBrief.intent = project_analysis`
 - 子 Agent：`CodeAgent`
-- 工具调用：`docker_sandbox`
+- 工具调用：`code_sandbox`
 - 只读扫描 workspace。
 - 返回文件数量、文件类型、关键文件和示例文件。
 

@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage
 
 from agent.core.main_agent import AgentInterruptError, AgentRunCancelled, MainAgent
 from agent.core.tools import ToolRegistry, ToolResult, ToolSpec, create_default_tool_registry, create_file_tool_registry
-from agent.core.utils.llm_config import AppConfig, CodeExecutionConfig, ProviderConfig, load_config
+from agent.core.utils.llm_config import AppConfig, CodeExecutionConfig, ConfigError, ProviderConfig, load_config
 from agent.core.utils.llm_models import (
     GenerationOptions,
     ModelInfo,
@@ -470,7 +470,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["route"], "simple_task")
         self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
         self.assertEqual(agent.last_state["task_brief"].intent, "data_analysis")
-        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
         self.assertIn("sandbox", result.content.lower())
         self.assertTrue(any(item["agent"] == "CodeAgent" for item in agent.last_state["debug_trace"]))
         self.assertEqual(len(fake.seen), 0)
@@ -487,7 +487,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
         self.assertEqual(agent.last_state["task_brief"].intent, "data_analysis")
         self.assertEqual(agent.last_state["task_brief"].context["path"], "02.xlsx")
-        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
         self.assertIn("sandbox", result.content.lower())
         self.assertEqual(len(fake.seen), 0)
 
@@ -503,7 +503,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
         self.assertEqual(agent.last_state["task_brief"].intent, "chart_generation")
         self.assertEqual(agent.last_state["task_brief"].context["path"], "02.xlsx")
-        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
         self.assertIn("sandbox", result.content.lower())
         self.assertEqual(len(fake.seen), 0)
 
@@ -518,7 +518,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["route"], "simple_task")
         self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
         self.assertEqual(agent.last_state["task_brief"].intent, "script_execution")
-        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
         self.assertIn("sandbox", result.content.lower())
         self.assertEqual(len(fake.seen), 0)
 
@@ -546,7 +546,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["route"], "simple_task")
         self.assertEqual(agent.last_state["task_brief"].delegate_to, "code_agent")
         self.assertEqual(agent.last_state["task_brief"].intent, "project_analysis")
-        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "docker_sandbox")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
         self.assertIn("sandbox", result.content.lower())
         self.assertEqual(len(fake.seen), 0)
 
@@ -797,7 +797,7 @@ search:
   user_agent: AgentDogsTest/0.1
 code_execution:
   enabled: true
-  backend: docker
+  backend: opensandbox
   image: python:3.12-slim
   timeout_seconds: 9
   memory_limit: 256m
@@ -809,6 +809,13 @@ code_execution:
   allow_user_script_execution: true
   max_artifacts: 9
   max_artifact_bytes: 123456
+  opensandbox:
+    domain: ${TEST_OPENSANDBOX_DOMAIN:-127.0.0.1:8080}
+    protocol: https
+    api_key: ${TEST_OPENSANDBOX_KEY}
+    request_timeout_seconds: 44
+    use_server_proxy: true
+    ready_timeout_seconds: 12
   dependency_install:
     enabled: true
     timeout_seconds: 33
@@ -818,7 +825,7 @@ code_execution:
             path = Path(directory) / "config" / "llm.yaml"
             path.parent.mkdir()
             path.write_text(content, encoding="utf-8")
-            with patch.dict(os.environ, {"TEST_AGENT_KEY": "secret"}):
+            with patch.dict(os.environ, {"TEST_AGENT_KEY": "secret", "TEST_OPENSANDBOX_DOMAIN": "sandbox.local", "TEST_OPENSANDBOX_KEY": "sandbox-secret"}):
                 config = load_config(path)
         self.assertEqual(config.providers["api"].api_key, "secret")
         self.assertEqual((config.default_provider, config.default_model), ("api", "demo"))
@@ -837,11 +844,33 @@ code_execution:
         self.assertEqual(config.code_execution.artifacts_dir, "runtime/test-artifacts")
         self.assertEqual(config.code_execution.max_output_chars, 5000)
         self.assertTrue(config.code_execution.allow_user_script_execution)
+        self.assertEqual(config.code_execution.backend, "opensandbox")
+        self.assertEqual(config.code_execution.opensandbox.domain, "sandbox.local")
+        self.assertEqual(config.code_execution.opensandbox.protocol, "https")
+        self.assertEqual(config.code_execution.opensandbox.api_key, "sandbox-secret")
+        self.assertEqual(config.code_execution.opensandbox.request_timeout_seconds, 44)
+        self.assertTrue(config.code_execution.opensandbox.use_server_proxy)
+        self.assertEqual(config.code_execution.opensandbox.ready_timeout_seconds, 12)
         self.assertTrue(config.code_execution.dependency_install_enabled)
         self.assertEqual(config.code_execution.allowed_packages, ["pandas", "openpyxl"])
         self.assertEqual(config.code_execution.install_timeout_seconds, 33)
         self.assertEqual(config.code_execution.max_artifacts, 9)
         self.assertEqual(config.code_execution.max_artifact_bytes, 123456)
+
+    def test_config_rejects_docker_backend(self):
+        content = """
+default_model: {provider: api, model: demo}
+providers:
+  api: {enabled: true, model: demo}
+code_execution:
+  backend: docker
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config" / "llm.yaml"
+            path.parent.mkdir()
+            path.write_text(content, encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "only supports opensandbox"):
+                load_config(path)
 
 
 if __name__ == "__main__":
