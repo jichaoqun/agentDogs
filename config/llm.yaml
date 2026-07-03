@@ -14,7 +14,7 @@ search:
   user_agent: AgentDogs/0.1
 code_execution:
   enabled: true
-  backend: opensandbox
+  backend: local_process
   image: python:3.11-slim
   timeout_seconds: 20
   memory_limit: 512m
@@ -33,6 +33,17 @@ code_execution:
     request_timeout_seconds: 60
     use_server_proxy: false
     ready_timeout_seconds: 30
+  local_process:
+    python_executable: ${AGENT_LOCAL_PYTHON:-}
+    runs_dir: runtime/local_runs
+    deps_dir: runtime/local_deps
+    cleanup_runs: true
+    require_human_approval: true
+    approval_scope:
+      command_execution: always
+      dependency_install: first_time
+      workspace_write: always
+      network_access: always
   dependency_install:
     enabled: true
     timeout_seconds: 120

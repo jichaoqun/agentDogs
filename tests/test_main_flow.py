@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage
 
 from agent.core.main_agent import AgentInterruptError, AgentRunCancelled, MainAgent
 from agent.core.tools import ToolRegistry, ToolResult, ToolSpec, create_default_tool_registry, create_file_tool_registry
-from agent.core.utils.llm_config import AppConfig, CodeExecutionConfig, ConfigError, ProviderConfig, load_config
+from agent.core.utils.llm_config import AppConfig, CodeExecutionConfig, ConfigError, LocalProcessConfig, ProviderConfig, load_config
 from agent.core.utils.llm_models import (
     GenerationOptions,
     ModelInfo,
@@ -336,6 +336,23 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "read_file")
         self.assertEqual(len(fake.seen), 0)
 
+    def test_plain_markdown_view_routes_to_file_agent_not_code_sandbox(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "你好.md").write_text("hello markdown", encoding="utf-8")
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(make_config(), manager, create_file_tool_registry(root))
+
+            result = agent.chat("查看你好.md中的内容")
+
+        self.assertEqual(agent.last_state["route"], "simple_task")
+        self.assertEqual(agent.last_state["task_brief"].delegate_to, "file_agent")
+        self.assertEqual(agent.last_state["task_brief"].context["path"], "你好.md")
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "read_file")
+        self.assertNotEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
+        self.assertIn("hello markdown", result.content)
+        self.assertEqual(len(fake.seen), 0)
+
     def test_workspace_search_routes_to_simple_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -425,7 +442,7 @@ class MainFlowTests(unittest.TestCase):
 
         self.assertEqual(agent.last_state["route"], "simple_task")
         self.assertIn("北京", result.content)
-        self.assertIn("2026-06-", result.content)
+        self.assertRegex(result.content, r"2026-\d{2}-\d{2}")
         self.assertIn("小雨", result.content)
         self.assertIn("21~29℃", result.content)
         self.assertIn("空气质量优", result.content)
@@ -520,6 +537,115 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(agent.last_state["task_brief"].intent, "script_execution")
         self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
         self.assertIn("sandbox", result.content.lower())
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_local_process_script_execution_waits_for_approval_then_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = make_config()
+            config.code_execution = CodeExecutionConfig(
+                enabled=True,
+                backend="local_process",
+                allow_user_script_execution=True,
+                artifacts_dir=str(root / "artifacts"),
+                local_process=LocalProcessConfig(
+                    runs_dir=str(root / "runs"),
+                    deps_dir=str(root / "deps"),
+                    cleanup_runs=True,
+                    require_human_approval=True,
+                ),
+            )
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(config, manager)
+
+            first = agent.chat("杩愯杩欐 Python 浠ｇ爜\n```python\nprint('hello approval')\n```", thread_id="local-approval")
+            interrupt = agent.last_state["interrupt"]
+            approval = interrupt["execution_approval"]
+            run_id = approval["run_id"]
+
+            self.assertEqual(agent.last_state["status"], "interrupted")
+            self.assertEqual(interrupt["type"], "execution_approval")
+            self.assertEqual(approval["backend"], "local_process")
+            self.assertEqual(approval["isolation"], "none")
+            self.assertIn("local process", first.content.lower())
+            self.assertEqual(agent.last_state.get("tool_calls") or [], [])
+
+            done = agent.resume(
+                interrupt["id"],
+                {"type": "execution_approval", "decision": "approve", "run_id": run_id},
+                thread_id="local-approval",
+            )
+
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("hello approval", done.content)
+        self.assertEqual(agent.last_state["tool_calls"][0]["tool"], "code_sandbox")
+        self.assertEqual(agent.last_state["tool_calls"][0]["payload"]["backend"], "local_process")
+        self.assertEqual(agent.last_state["tool_calls"][0]["payload"]["isolation"], "none")
+        self.assertEqual(agent.last_state["tool_calls"][0]["payload"]["run_id"], run_id)
+        self.assertTrue(agent.last_state["tool_calls"][0]["payload"]["warnings"])
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_local_process_execution_reject_does_not_run_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = make_config()
+            config.code_execution = CodeExecutionConfig(
+                enabled=True,
+                backend="local_process",
+                allow_user_script_execution=True,
+                artifacts_dir=str(root / "artifacts"),
+                local_process=LocalProcessConfig(
+                    runs_dir=str(root / "runs"),
+                    deps_dir=str(root / "deps"),
+                    cleanup_runs=True,
+                    require_human_approval=True,
+                ),
+            )
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(config, manager)
+
+            agent.chat("杩愯杩欐 Python 浠ｇ爜\n```python\nprint('must not run')\n```", thread_id="local-reject")
+            interrupt = agent.last_state["interrupt"]
+            run_id = interrupt["execution_approval"]["run_id"]
+            result = agent.resume(
+                interrupt["id"],
+                {"type": "execution_approval", "decision": "cancel", "run_id": run_id},
+                thread_id="local-reject",
+            )
+
+        self.assertEqual(agent.last_state["status"], "completed")
+        self.assertIn("cancelled", result.content.lower())
+        self.assertEqual(agent.last_state.get("tool_calls") or [], [])
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_local_process_excel_analysis_waits_for_approval_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = make_config()
+            config.code_execution = CodeExecutionConfig(
+                enabled=True,
+                backend="local_process",
+                artifacts_dir=str(root / "artifacts"),
+                local_process=LocalProcessConfig(
+                    runs_dir=str(root / "runs"),
+                    deps_dir=str(root / "deps"),
+                    cleanup_runs=True,
+                    require_human_approval=True,
+                ),
+            )
+            manager, fake = make_manager(reply="must not be used")
+            agent = MainAgent(config, manager)
+
+            agent.chat("分析 02.xlsx 表格数据", thread_id="local-excel")
+            approval = agent.last_state["interrupt"]["execution_approval"]
+
+        self.assertEqual(agent.last_state["status"], "interrupted")
+        self.assertEqual(agent.last_state["interrupt"]["type"], "execution_approval")
+        self.assertEqual(approval["backend"], "local_process")
+        self.assertEqual(approval["isolation"], "none")
+        self.assertIn("02.xlsx", approval["input_files"])
+        self.assertIn("pandas", approval["dependencies"])
+        self.assertTrue(approval["network_required"])
         self.assertEqual(len(fake.seen), 0)
 
     def test_code_generation_routes_to_code_agent_without_sandbox(self):
@@ -816,6 +942,17 @@ code_execution:
     request_timeout_seconds: 44
     use_server_proxy: true
     ready_timeout_seconds: 12
+  local_process:
+    python_executable: ${TEST_LOCAL_PYTHON:-python-test}
+    runs_dir: runtime/test-runs
+    deps_dir: runtime/test-deps
+    cleanup_runs: false
+    require_human_approval: true
+    approval_scope:
+      command_execution: always
+      dependency_install: first_time
+      workspace_write: always
+      network_access: never
   dependency_install:
     enabled: true
     timeout_seconds: 33
@@ -851,6 +988,12 @@ code_execution:
         self.assertEqual(config.code_execution.opensandbox.request_timeout_seconds, 44)
         self.assertTrue(config.code_execution.opensandbox.use_server_proxy)
         self.assertEqual(config.code_execution.opensandbox.ready_timeout_seconds, 12)
+        self.assertEqual(config.code_execution.local_process.python_executable, "python-test")
+        self.assertEqual(config.code_execution.local_process.runs_dir, "runtime/test-runs")
+        self.assertEqual(config.code_execution.local_process.deps_dir, "runtime/test-deps")
+        self.assertFalse(config.code_execution.local_process.cleanup_runs)
+        self.assertTrue(config.code_execution.local_process.require_human_approval)
+        self.assertEqual(config.code_execution.local_process.approval_scope.network_access, "never")
         self.assertTrue(config.code_execution.dependency_install_enabled)
         self.assertEqual(config.code_execution.allowed_packages, ["pandas", "openpyxl"])
         self.assertEqual(config.code_execution.install_timeout_seconds, 33)
@@ -869,8 +1012,30 @@ code_execution:
             path = Path(directory) / "config" / "llm.yaml"
             path.parent.mkdir()
             path.write_text(content, encoding="utf-8")
-            with self.assertRaisesRegex(ConfigError, "only supports opensandbox"):
+            with self.assertRaisesRegex(ConfigError, "opensandbox or local_process"):
                 load_config(path)
+
+    def test_config_accepts_local_process_backend(self):
+        content = """
+default_model: {provider: api, model: demo}
+providers:
+  api: {enabled: true, model: demo}
+code_execution:
+  enabled: true
+  backend: local_process
+  local_process:
+    runs_dir: runtime/local-test-runs
+    require_human_approval: true
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config" / "llm.yaml"
+            path.parent.mkdir()
+            path.write_text(content, encoding="utf-8")
+            config = load_config(path)
+
+        self.assertEqual(config.code_execution.backend, "local_process")
+        self.assertEqual(config.code_execution.local_process.runs_dir, "runtime/local-test-runs")
+        self.assertTrue(config.code_execution.local_process.require_human_approval)
 
 
 if __name__ == "__main__":

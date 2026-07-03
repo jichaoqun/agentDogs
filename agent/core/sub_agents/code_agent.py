@@ -33,6 +33,7 @@ class CodeTask:
     artifact_expected: bool = False
     language: str = "python"
     execution_mode: str = "analyze"
+    run_id: str = ""
 
 
 @dataclass(slots=True)
@@ -41,9 +42,9 @@ class CodeAgent:
 
     CAPABILITY = SubAgentSpec(
         name="code_agent",
-        description="在 OpenSandbox 沙箱中使用代码完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。",
-        handles=["数据分析", "图表生成", "代码结构分析", "项目结构分析", "代码生成", "用户 Python 脚本沙箱执行"],
-        does_not_handle=["未确认的 workspace 写入", "宿主机命令执行", "删除或重命名文件", "绕过 OpenSandbox 沙箱的执行", "非 Python 运行时执行"],
+        description="通过配置的 code_sandbox 后端使用 Python 完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。",
+        handles=["数据分析", "图表生成", "代码结构分析", "项目结构分析", "代码生成", "用户 Python 脚本受控执行"],
+        does_not_handle=["未确认的 workspace 写入", "宿主机命令执行", "删除或重命名文件", "绕过 code_sandbox 后端的执行", "非 Python 运行时执行"],
         capabilities=[
             "code.execute.sandboxed",
             "data.analyze",
@@ -110,6 +111,7 @@ class CodeAgent:
         code = self._script_for_task(task, brief)
         request = SandboxRunRequest(
             code=code,
+            run_id=task.run_id or None,
             timeout_seconds=self._timeout_for_task(task),
             input_files=self._input_files_for_task(task),
             dependencies=task.dependencies,
@@ -177,6 +179,8 @@ class CodeAgent:
         if path and path not in paths:
             paths.insert(0, path)
         user_code = str(context.get("user_code") or self._extract_user_code(brief.normalized_input or brief.user_goal)).strip()
+        if user_code and task_type != "code_generation":
+            task_type = "script_execution"
         dependencies = self._dependencies_for_task(task_type, context)
         return CodeTask(
             task_type=task_type,
@@ -187,6 +191,7 @@ class CodeAgent:
             artifact_expected=bool(context.get("artifact_expected") or task_type == "chart_generation"),
             language=str(context.get("language") or "python").lower(),
             execution_mode=str(context.get("execution_mode") or self._execution_mode_from_text(text)),
+            run_id=str(context.get("run_id") or "").strip(),
         )
 
     def _task_type(self, brief: TaskBrief) -> str:
@@ -233,15 +238,17 @@ class CodeAgent:
     def _data_script(self, path: str) -> str:
         return f"""
 from pathlib import Path
+import os
 import json
 from collections import Counter
 
-path = Path('/workspace') / {path!r}
+workspace = Path(os.environ.get('AGENT_WORKSPACE_DIR', '/workspace'))
+path = workspace / {path!r}
 if not path.is_file():
     raise FileNotFoundError(f'workspace file not found: {{path}}')
 suffix = path.suffix.lower()
 print('CodeAgent 数据分析摘要')
-print(f'文件: {{path.relative_to(Path("/workspace"))}}')
+print(f'文件: {{path.relative_to(workspace)}}')
 print(f'大小: {{path.stat().st_size}} bytes')
 
 if suffix in {{'.csv', '.xlsx', '.xls', '.json'}}:
@@ -292,8 +299,11 @@ else:
     def _chart_script(self, path: str) -> str:
         return f"""
 from pathlib import Path
+import os
 
-path = Path('/workspace') / {path!r}
+workspace = Path(os.environ.get('AGENT_WORKSPACE_DIR', '/workspace'))
+artifacts = Path(os.environ.get('AGENT_ARTIFACTS_DIR', '/artifacts'))
+path = workspace / {path!r}
 if not path.is_file():
     raise FileNotFoundError(f'workspace file not found: {{path}}')
 import pandas as pd
@@ -353,7 +363,8 @@ else:
     plt.title(f'Distribution of {{numeric.columns[0]}}')
     chart_kind = 'hist'
 plt.tight_layout()
-target = Path('/artifacts') / 'chart.png'
+artifacts.mkdir(parents=True, exist_ok=True)
+target = artifacts / 'chart.png'
 plt.savefig(target, dpi=150)
 print('CodeAgent 图表生成完成')
 print(f'图表: {{target}}')
@@ -364,15 +375,17 @@ print(f'数据行数: {{len(df)}}')
     def _code_analysis_script(self, path: str) -> str:
         return f"""
 from pathlib import Path
+import os
 import ast
 import json
 
-path = Path('/workspace') / {path!r}
+workspace = Path(os.environ.get('AGENT_WORKSPACE_DIR', '/workspace'))
+path = workspace / {path!r}
 if not path.is_file():
     raise FileNotFoundError(f'workspace file not found: {{path}}')
 text = path.read_text(encoding='utf-8', errors='replace')
 print('CodeAgent 代码分析摘要')
-print(f'文件: {{path.relative_to(Path("/workspace"))}}')
+print(f'文件: {{path.relative_to(workspace)}}')
 print(f'行数: {{len(text.splitlines())}}')
 print(f'大小: {{path.stat().st_size}} bytes')
 if path.suffix.lower() == '.py':
@@ -406,9 +419,10 @@ else:
         roots_literal = ", ".join(repr(item.replace("\\", "/").strip("/")) for item in roots)
         return f"""
 from pathlib import Path
+import os
 from collections import Counter
 
-workspace = Path('/workspace')
+workspace = Path(os.environ.get('AGENT_WORKSPACE_DIR', '/workspace'))
 roots = [{roots_literal}]
 allowed_suffixes = {{'.py', '.js', '.jsx', '.ts', '.tsx', '.json', '.yaml', '.yml', '.md', '.txt', '.html', '.css'}}
 files = []
@@ -443,14 +457,16 @@ for path in files[:30]:
 from pathlib import Path
 import os
 
-os.chdir('/workspace')
-Path('/artifacts').mkdir(parents=True, exist_ok=True)
-print('CodeAgent 用户脚本执行开始')
-print('workspace 以只读方式挂载；请把输出写入 /artifacts。')
+workspace = Path(os.environ.get('AGENT_WORKSPACE_DIR', '/workspace'))
+artifacts = Path(os.environ.get('AGENT_ARTIFACTS_DIR', '/artifacts'))
+os.chdir(workspace)
+artifacts.mkdir(parents=True, exist_ok=True)
+print('CodeAgent user script started')
+print(f'workspace is staged read-only; write outputs to {{artifacts}}')
 
 {user_code}
 
-print('CodeAgent 用户脚本执行结束')
+print('CodeAgent user script finished')
 """
 
     def _generate_code_only(self, brief: TaskBrief, task: CodeTask) -> SubAgentResult:
@@ -460,8 +476,10 @@ print('CodeAgent 用户脚本执行结束')
             "本步骤只生成代码文本，不会执行，也不会写入 workspace。\n\n"
             "```python\n"
             "from pathlib import Path\n"
+            "import os\n"
             "import pandas as pd\n\n"
-            f"path = Path('/workspace') / {path!r}\n"
+            "workspace = Path(os.environ.get('AGENT_WORKSPACE_DIR', '/workspace'))\n"
+            f"path = workspace / {path!r}\n"
             "df = pd.read_csv(path) if path.suffix == '.csv' else pd.read_excel(path)\n"
             "print(df.head())\n"
             "print(df.describe(include='all'))\n"
@@ -568,8 +586,10 @@ print('CodeAgent 用户脚本执行结束')
 
     def _next_actions_for_failure(self, result: SandboxRunResult) -> list[str]:
         error = result.error or ""
+        if "Local process" in error:
+            return ["local_process is not a strong sandbox. Check the configured Python executable, approval decision, and runtime/local_runs details."]
         if "Dependency installation is disabled" in error:
-            return ["在 config/llm.yaml 中启用 code_execution.dependency_install.enabled，或换用已包含依赖的 OpenSandbox 镜像。"]
+            return ["在 config/llm.yaml 中启用 code_execution.dependency_install.enabled，或换用已包含依赖的执行环境。"]
         if "Dependency is not allowed" in error:
             return ["把需要的包加入 code_execution.dependency_install.allowed_packages，确认风险后再执行。"]
         if "OpenSandbox" in error:
@@ -577,10 +597,14 @@ print('CodeAgent 用户脚本执行结束')
         return ["查看调试信息中的 stdout/stderr，修正输入文件、依赖或脚本后重试。"]
 
     def _sandbox_tool_call(self, task: CodeTask, result: SandboxRunResult) -> dict[str, Any]:
+        config = getattr(self.sandbox, "config", None)
+        backend = result.backend or getattr(config, "backend", "opensandbox")
         return {
             "tool": "code_sandbox",
             "payload": {
-                "backend": "opensandbox",
+                "backend": backend,
+                "isolation": result.isolation,
+                "warnings": result.warnings,
                 "task_type": task.task_type,
                 "path": task.path,
                 "paths": task.paths,

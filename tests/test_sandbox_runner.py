@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent.core.sandbox import OpenSandboxRunner, SandboxRunRequest
-from agent.core.utils.llm_config import CodeExecutionConfig
+from agent.core.sandbox import LocalProcessRunner, OpenSandboxRunner, SandboxRunRequest
+from agent.core.utils.llm_config import CodeExecutionConfig, LocalProcessConfig
 
 
 class FakeFiles:
@@ -222,6 +222,148 @@ class OpenSandboxRunnerTests(unittest.TestCase):
         self.assertTrue(result.ok, result.stderr or result.error)
         self.assertIn("hello", result.stdout)
         self.assertEqual(result.artifacts[0]["filename"], "out.txt")
+
+
+class LocalProcessRunnerTests(unittest.TestCase):
+    def make_runner(
+        self,
+        directory: str,
+        *,
+        enabled: bool = True,
+        timeout_seconds: int = 3,
+        max_output_chars: int = 2000,
+        max_artifacts: int = 20,
+        max_artifact_bytes: int = 25 * 1024 * 1024,
+    ) -> LocalProcessRunner:
+        root = Path(directory)
+        workspace = root / "workspace"
+        workspace.mkdir(exist_ok=True)
+        config = CodeExecutionConfig(
+            enabled=enabled,
+            backend="local_process",
+            artifacts_dir=str(root / "artifacts"),
+            timeout_seconds=timeout_seconds,
+            max_output_chars=max_output_chars,
+            max_artifacts=max_artifacts,
+            max_artifact_bytes=max_artifact_bytes,
+            local_process=LocalProcessConfig(
+                runs_dir=str(root / "local_runs"),
+                deps_dir=str(root / "local_deps"),
+                cleanup_runs=True,
+                require_human_approval=False,
+            ),
+        )
+        return LocalProcessRunner(config, project_root=root, workspace_root=workspace)
+
+    def test_disabled_local_process_does_not_execute(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(directory, enabled=False)
+
+            result = runner.run_python("print('hi')")
+
+        self.assertFalse(result.ok)
+        self.assertIn("disabled", result.error)
+        self.assertEqual(result.command, [])
+        self.assertEqual(result.backend, "local_process")
+        self.assertEqual(result.isolation, "none")
+
+    def test_success_executes_python_and_collects_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "workspace").mkdir()
+            (root / "workspace" / "input.txt").write_text("hello local", encoding="utf-8")
+            runner = self.make_runner(directory)
+
+            result = runner.run(
+                SandboxRunRequest(
+                    code=(
+                        "from pathlib import Path\n"
+                        "import os\n"
+                        "workspace = Path(os.environ['AGENT_WORKSPACE_DIR'])\n"
+                        "artifacts = Path(os.environ['AGENT_ARTIFACTS_DIR'])\n"
+                        "print((workspace / 'input.txt').read_text())\n"
+                        "(artifacts / 'out.txt').write_text('done', encoding='utf-8')\n"
+                    ),
+                    run_id="local-success",
+                    input_files=["input.txt"],
+                )
+            )
+
+        self.assertTrue(result.ok, result.stderr or result.error)
+        self.assertEqual(result.run_id, "local-success")
+        self.assertIn("hello local", result.stdout)
+        self.assertEqual(result.artifacts[0]["filename"], "out.txt")
+        self.assertEqual(result.artifacts[0]["url"], "/api/v1/artifacts/local-success/out.txt")
+        self.assertEqual(result.backend, "local_process")
+        self.assertEqual(result.isolation, "none")
+        self.assertTrue(result.warnings)
+
+    def test_nonzero_exit_code_is_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(directory)
+
+            result = runner.run_python("raise SystemExit(3)")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.exit_code, 3)
+        self.assertIn("failed", result.error.lower())
+
+    def test_timeout_terminates_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(directory, timeout_seconds=1)
+
+            result = runner.run_python("import time\ntime.sleep(5)")
+
+        self.assertFalse(result.ok)
+        self.assertIn("timed out", result.error)
+
+    def test_stdout_and_stderr_are_truncated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(directory, max_output_chars=20)
+
+            result = runner.run_python("import sys\nprint('x' * 40)\nprint('e' * 40, file=sys.stderr)")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.stdout, "x" * 20 + "...")
+        self.assertEqual(result.stderr, "e" * 20 + "...")
+
+    def test_workspace_path_escape_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(directory)
+
+            result = runner.run(SandboxRunRequest(code="print('ok')", input_files=["../secret.txt"]))
+
+        self.assertFalse(result.ok)
+        self.assertIn("escaped workspace", result.error)
+
+    def test_dependency_allowlist_is_enforced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(directory)
+            runner.config.dependency_install_enabled = True
+            runner.config.allowed_packages = ["pandas"]
+
+            result = runner.run(SandboxRunRequest(code="print('ok')", dependencies=["requests"]))
+
+        self.assertFalse(result.ok)
+        self.assertIn("not allowed", result.error)
+        self.assertEqual(result.command, [])
+
+    def test_oversized_and_extra_artifacts_are_skipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(directory, max_artifacts=1, max_artifact_bytes=5)
+
+            result = runner.run_python(
+                "from pathlib import Path\n"
+                "import os\n"
+                "artifacts = Path(os.environ['AGENT_ARTIFACTS_DIR'])\n"
+                "(artifacts / 'a.txt').write_text('ok', encoding='utf-8')\n"
+                "(artifacts / 'b.txt').write_text('ok', encoding='utf-8')\n"
+                "(artifacts / 'large.txt').write_text('too-large', encoding='utf-8')\n"
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.artifacts), 1)
+        self.assertIn(result.artifacts[0]["filename"], {"a.txt", "b.txt"})
 
 
 if __name__ == "__main__":

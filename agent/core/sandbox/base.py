@@ -9,6 +9,7 @@ from typing import Protocol
 @dataclass(slots=True)
 class SandboxRunRequest:
     code: str
+    run_id: str | None = None
     language: str = "python"
     timeout_seconds: int | None = None
     input_files: list[str] = field(default_factory=list)
@@ -30,6 +31,9 @@ class SandboxRunResult:
     duration_ms: int = 0
     command: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
+    backend: str = ""
+    isolation: str = ""
+    warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -43,6 +47,9 @@ class SandboxRunResult:
             "duration_ms": self.duration_ms,
             "command": self.command,
             "dependencies": self.dependencies,
+            "backend": self.backend,
+            "isolation": self.isolation,
+            "warnings": self.warnings,
         }
 
 

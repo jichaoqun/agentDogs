@@ -22,6 +22,8 @@ WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
 SANDBOX_SCRIPT_NAME = "task.script"
 REMOTE_WORKSPACE = "/workspace"
 REMOTE_ARTIFACTS = "/artifacts"
+BACKEND = "opensandbox"
+ISOLATION = "container"
 
 
 class OpenSandboxRunner:
@@ -48,25 +50,29 @@ class OpenSandboxRunner:
         return self.run(SandboxRunRequest(code=code, timeout_seconds=timeout_seconds))
 
     def run(self, request: SandboxRunRequest) -> SandboxRunResult:
-        run_id = uuid4().hex
+        run_id = request.run_id or uuid4().hex
         started = time.monotonic()
         if request.language != "python":
             return SandboxRunResult(
                 ok=False,
                 run_id=run_id,
                 error=f"Unsupported sandbox language: {request.language}",
+                backend=BACKEND,
+                isolation=ISOLATION,
             )
         if not self.config.enabled:
             return SandboxRunResult(
                 ok=False,
                 run_id=run_id,
                 error="Code execution sandbox is disabled by code_execution.enabled.",
+                backend=BACKEND,
+                isolation=ISOLATION,
             )
 
         dependencies = self._normalize_dependencies(request.dependencies)
         dependency_error = self._validate_dependencies(dependencies)
         if dependency_error:
-            return SandboxRunResult(ok=False, run_id=run_id, error=dependency_error, dependencies=dependencies)
+            return SandboxRunResult(ok=False, run_id=run_id, error=dependency_error, dependencies=dependencies, backend=BACKEND, isolation=ISOLATION)
 
         try:
             workspace_files = self._workspace_files(request)
@@ -77,6 +83,8 @@ class OpenSandboxRunner:
                 error=str(exc) or exc.__class__.__name__,
                 duration_ms=self._duration(started),
                 dependencies=dependencies,
+                backend=BACKEND,
+                isolation=ISOLATION,
             )
 
         command = self._python_command(
@@ -111,6 +119,8 @@ class OpenSandboxRunner:
                 duration_ms=self._duration(started),
                 command=["opensandbox", "commands.run", command],
                 dependencies=dependencies,
+                backend=BACKEND,
+                isolation=ISOLATION,
             )
         except ImportError as exc:
             return self._failure(
@@ -136,6 +146,8 @@ class OpenSandboxRunner:
                 duration_ms=self._duration(started),
                 command=["opensandbox", "commands.run", command],
                 dependencies=dependencies,
+                backend=BACKEND,
+                isolation=ISOLATION,
             )
         finally:
             self._cleanup_sandbox(sandbox)
@@ -158,6 +170,8 @@ class OpenSandboxRunner:
             duration_ms=self._duration(started),
             command=["opensandbox", "commands.run", command],
             dependencies=dependencies,
+            backend=BACKEND,
+            isolation=ISOLATION,
         )
 
     def _create_sandbox(self, *, network_required: bool, timeout_seconds: int | None) -> Any:
@@ -271,6 +285,9 @@ class OpenSandboxRunner:
         envs = {
             "PYTHONDONTWRITEBYTECODE": "1",
             "AGENT_SANDBOX_TIMEOUT": str(timeout),
+            "AGENT_CODE_BACKEND": BACKEND,
+            "AGENT_WORKSPACE_DIR": REMOTE_WORKSPACE,
+            "AGENT_ARTIFACTS_DIR": REMOTE_ARTIFACTS,
         }
         for key, value in sorted(env.items()):
             if self._safe_env_name(key):
@@ -449,6 +466,8 @@ class OpenSandboxRunner:
             duration_ms=self._duration(started),
             command=["opensandbox", "commands.run", command],
             dependencies=dependencies,
+            backend=BACKEND,
+            isolation=ISOLATION,
         )
 
     def _shell_quote(self, value: str) -> str:

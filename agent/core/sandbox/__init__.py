@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .base import SandboxRunner, SandboxRunRequest, SandboxRunResult
+from .local_process_runner import LocalProcessRunner
 from .opensandbox_runner import OpenSandboxRunner
 
-__all__ = ["OpenSandboxRunner", "SandboxRunner", "SandboxRunRequest", "SandboxRunResult"]
+__all__ = ["LocalProcessRunner", "OpenSandboxRunner", "SandboxRunner", "SandboxRunRequest", "SandboxRunResult"]

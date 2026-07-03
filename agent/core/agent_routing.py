@@ -220,7 +220,7 @@ class AgentRoutingMixin:
             constraints.append("需要使用新鲜外部信息，不能只依赖模型历史知识。")
         if self._is_code_task(text):
             constraints.extend([
-                "必须在 OpenSandbox 沙箱执行，不能回退到宿主机 Python。",
+                "必须通过配置的 code_sandbox 后端执行，不能自动回退到宿主机 Python。",
                 "workspace 只读，输出只能写入 artifacts。",
                 "默认不允许联网或安装依赖。",
             ])
@@ -277,13 +277,16 @@ class AgentRoutingMixin:
         return any(marker in text for marker in WEATHER_MARKERS)
 
     def _is_code_task(self, text: str) -> bool:
-        has_path = PATH_HINT.search(text) is not None
+        path_match = PATH_HINT.search(text)
+        has_path = path_match is not None
         explicit = any(marker in text for marker in ("Python", "python", "代码", "脚本", "函数", "项目结构", "分析代码", "图表", "结果图", "画图", "趋势图"))
         explicit = explicit or any(marker in text for marker in SCRIPT_EXECUTION_MARKERS + PROJECT_ANALYSIS_MARKERS)
         explicit = explicit or self._looks_like_code_generation(text)
-        data_action = any(marker in text for marker in ("分析", "统计", "生成", "处理", "转换", "查看"))
+        data_action = any(marker in text for marker in ("分析", "统计", "生成", "处理", "转换"))
         data_target = any(marker in text for marker in DATA_ANALYSIS_MARKERS)
-        return explicit or (has_path and (data_target or data_action))
+        path = path_match.group(1).strip("`") if path_match else ""
+        spreadsheet_read = path.lower().endswith((".xlsx", ".xls")) and any(marker in text for marker in SIMPLE_FILE_READ_MARKERS)
+        return explicit or (has_path and data_target and (data_action or spreadsheet_read))
 
     def _code_execution_mode(self, text: str) -> str:
         if any(marker in text for marker in SCRIPT_EXECUTION_MARKERS):
@@ -357,7 +360,7 @@ class AgentRoutingMixin:
                 reason="任务包含数据/代码执行以及保存、新建或写入产物要求，需要先确认计划，避免未经确认写入 workspace。",
                 suggested_steps=[
                     "确认输入表格路径、分析目标和预期图表类型。",
-                    "在 OpenSandbox 沙箱中读取表格并生成数据摘要。",
+                    "通过配置的 code_sandbox 后端读取表格并生成数据摘要。",
                     "在 artifacts 中生成分析图表，并返回可下载路径。",
                     "如需写入 workspace 指定目录，先请求用户确认输出位置和覆盖策略。",
                 ],
@@ -373,7 +376,7 @@ class AgentRoutingMixin:
                 risk_level="medium",
                 requires_confirmation=False,
                 confidence=0.84,
-                reason="这是可由 CodeAgent 在 OpenSandbox 沙箱中处理的代码、数据或图表任务。",
+                reason="这是可由 CodeAgent 通过配置的 code_sandbox 后端处理的代码、数据或图表任务。",
             )
         if self._has_missing_target(text):
             return TaskAnalysis(

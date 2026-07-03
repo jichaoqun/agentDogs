@@ -15,7 +15,7 @@ Route = Literal["simple_chat", "simple_task", "clarify", "future_task"]
 TaskKind = Literal["chat", "tool", "task", "unknown"]
 TaskRiskLevel = Literal["low", "medium", "high"]
 AgentStatus = Literal["completed", "interrupted"]
-InterruptType = Literal["clarification", "plan_confirmation", "workspace_confirmation"]
+InterruptType = Literal["clarification", "plan_confirmation", "workspace_confirmation", "execution_approval"]
 PlanDecision = Literal["approve", "revise", "cancel"]
 PlanStatus = Literal["pending", "approved", "revised", "cancelled"]
 

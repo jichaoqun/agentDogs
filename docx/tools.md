@@ -148,7 +148,7 @@ $env:AGENT_WEB_SEARCH_ENABLED = "1"
 
 ### CodeAgent
 
-处理需要代码能力完成的任务，可使用 OpenSandbox 沙箱执行 Python。
+处理需要代码能力完成的任务，可通过配置的 `code_sandbox` 后端执行 Python。
 
 第一阶段能力：
 
@@ -157,13 +157,14 @@ $env:AGENT_WEB_SEARCH_ENABLED = "1"
 - 代码结构分析：读取代码文件并提取类、函数、导入或关键词结构。
 - 项目结构分析：只读扫描 workspace 项目结构、关键文件和文件类型。
 - 代码生成：只生成代码文本，不执行、不写 workspace。
-- 脚本执行：用户明确要求时，在 OpenSandbox 沙箱中执行 Python 脚本。
+- 脚本执行：用户明确要求时，通过 `code_sandbox` 后端执行 Python 脚本。
 
 安全规则：
 
 - 不执行宿主机 Python。
 - 不执行任意 shell。
-- OpenSandbox Server 不可用时不 fallback。
+- `opensandbox` 后端不可用时不自动 fallback 到 `local_process`。
+- `local_process` 后端不是强安全沙箱，必须显式配置，默认需要 `execution_approval` 人工确认。
 - workspace 只读。
 - artifacts 目录可写。
 - 默认无网络，只有运行时依赖安装开启且任务需要依赖时才打开网络。
@@ -174,8 +175,8 @@ $env:AGENT_WEB_SEARCH_ENABLED = "1"
 
 ```yaml
 code_execution:
-  enabled: false
-  backend: opensandbox
+  enabled: true
+  backend: local_process # opensandbox | local_process
   image: python:3.11-slim
   timeout_seconds: 20
   memory_limit: 512m
@@ -190,6 +191,17 @@ code_execution:
     protocol: ${OPENSANDBOX_PROTOCOL:-http}
     api_key: ${OPENSANDBOX_API_KEY:-}
     request_timeout_seconds: 60
+  local_process:
+    python_executable: ${AGENT_LOCAL_PYTHON:-}
+    runs_dir: runtime/local_runs
+    deps_dir: runtime/local_deps
+    cleanup_runs: true
+    require_human_approval: true
+    approval_scope:
+      command_execution: always
+      dependency_install: first_time
+      workspace_write: always
+      network_access: always
   dependency_install:
     enabled: false
     allowed_packages: [pandas, numpy, openpyxl, matplotlib, seaborn, scipy, scikit-learn]

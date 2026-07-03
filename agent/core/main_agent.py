@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import AIMessage
@@ -25,7 +25,7 @@ from .agent_debug import AgentDebugMixin
 from .agent_metadata import AGENT_METADATA_KEY, AgentMetadataMixin, _with_agent_metadata
 from .agent_responses import AgentResponseSynthesizerMixin
 from .agent_routing import AgentRoutingMixin
-from .sub_agents import SimpleChatAgent, SimpleTaskAgent, SubAgentRegistry, TaskAgent, create_default_sub_agent_registry
+from .sub_agents import SimpleChatAgent, SimpleTaskAgent, SubAgentRegistry, SubAgentResult, TaskAgent, create_default_sub_agent_registry
 from .state import AgentState, Route, TaskAnalysis, TaskBrief, TaskPlan
 from .tools import ToolRegistry, create_default_tool_registry
 from .utils.llm_config import AppConfig
@@ -209,6 +209,17 @@ class MainAgent(AgentRoutingMixin, AgentDebugMixin, AgentResponseSynthesizerMixi
                 "type": "workspace_confirmation",
                 "decision": decision,
                 "feedback": str(payload.get("feedback") or "").strip(),
+            }
+
+        if interrupt_type == "execution_approval":
+            decision = str(payload.get("decision") or "")
+            if decision not in {"approve", "cancel"}:
+                raise AgentInterruptError("execution approval decision must be approve or cancel")
+            return {
+                "type": "execution_approval",
+                "decision": decision,
+                "feedback": str(payload.get("feedback") or "").strip(),
+                "run_id": str(payload.get("run_id") or "").strip(),
             }
         raise AgentInterruptError("未知的恢复类型。")
 
@@ -451,7 +462,17 @@ class MainAgent(AgentRoutingMixin, AgentDebugMixin, AgentResponseSynthesizerMixi
             result = self.file_agent.handle_brief(brief)
             agent_name = "FileAgent"
         elif isinstance(brief, TaskBrief) and brief.delegate_to == "code_agent":
-            result = self.code_agent.handle_brief(brief)
+            approval = self._confirm_execution_approval(state, brief)
+            if approval["approved"]:
+                result = self.code_agent.handle_brief(brief)
+            else:
+                result = SubAgentResult.failure(
+                    "Local process execution was cancelled before any code ran.",
+                    data={"execution_approval": approval},
+                    summary="Local process execution cancelled.",
+                    next_actions=["Approve the execution prompt to run trusted local Python code."],
+                    confidence=0.2,
+                )
             agent_name = "CodeAgent"
         else:
             result = self.simple_task_agent.handle(state["user_input"])
@@ -489,6 +510,123 @@ class MainAgent(AgentRoutingMixin, AgentDebugMixin, AgentResponseSynthesizerMixi
             "final_response": final_response,
             "debug_trace": trace,
         }
+
+    def _confirm_execution_approval(self, state: AgentState, brief: TaskBrief) -> dict[str, Any]:
+        if not self._requires_execution_approval(brief):
+            return {"approved": True}
+
+        run_id = self._ensure_execution_run_id(state, brief)
+        payload = {
+            "type": "execution_approval",
+            "message": "This task will run trusted Python in a local process. Please approve before execution.",
+            "execution_approval": self._execution_approval_payload(state, brief, run_id),
+        }
+        if interrupt is None:
+            return {
+                "approved": False,
+                "run_id": run_id,
+                "reason": "execution approval interrupt is unavailable",
+            }
+
+        answer = interrupt(payload)
+        decision = answer.get("decision", "cancel") if isinstance(answer, dict) else "cancel"
+        answer_run_id = str(answer.get("run_id") or run_id).strip() if isinstance(answer, dict) else run_id
+        if answer_run_id != run_id:
+            return {
+                "approved": False,
+                "run_id": run_id,
+                "reason": "execution approval run_id mismatch",
+            }
+        return {
+            "approved": decision == "approve",
+            "run_id": run_id,
+            "decision": decision,
+            "feedback": str(answer.get("feedback") or "").strip() if isinstance(answer, dict) else "",
+        }
+
+    def _requires_execution_approval(self, brief: TaskBrief) -> bool:
+        execution = self.config.code_execution
+        if not execution.enabled or execution.backend != "local_process":
+            return False
+        if brief.intent == "code_generation":
+            return False
+        if brief.intent == "script_execution" and not execution.allow_user_script_execution:
+            return False
+        if execution.local_process.require_human_approval:
+            return True
+        scope = execution.local_process.approval_scope
+        dependencies = self._execution_dependencies_for_brief(brief)
+        if scope.command_execution == "always":
+            return True
+        if dependencies and scope.dependency_install in {"always", "first_time"}:
+            return True
+        if (dependencies or execution.network_enabled) and scope.network_access == "always":
+            return True
+        return False
+
+    def _ensure_execution_run_id(self, state: AgentState, brief: TaskBrief) -> str:
+        context = dict(brief.context or {})
+        seed = "|".join(
+            [
+                str(state.get("user_input") or ""),
+                str(state.get("current_time") or ""),
+                brief.intent,
+                brief.normalized_input,
+            ]
+        )
+        run_id = str(context.get("run_id") or "").strip() or uuid5(NAMESPACE_URL, seed).hex
+        context["run_id"] = run_id
+        brief.context = context
+        return run_id
+
+    def _execution_approval_payload(self, state: AgentState, brief: TaskBrief, run_id: str) -> dict[str, Any]:
+        execution = self.config.code_execution
+        dependencies = self._execution_dependencies_for_brief(brief)
+        return {
+            "original_message": state["user_input"],
+            "backend": "local_process",
+            "isolation": "none",
+            "run_id": run_id,
+            "warnings": [
+                "\u672c\u5730\u8fdb\u7a0b\u6267\u884c\u4e0d\u662f\u5f3a\u5b89\u5168\u6c99\u7bb1\uff0c\u8bf7\u52ff\u8fd0\u884c\u4e0d\u53ef\u4fe1\u4ee3\u7801\u3002"
+            ],
+            "task": brief.model_dump(),
+            "input_files": self._execution_input_files_for_brief(brief),
+            "artifacts_dir": execution.artifacts_dir,
+            "runs_dir": execution.local_process.runs_dir,
+            "python_executable": execution.local_process.python_executable or "current Python",
+            "dependencies": dependencies,
+            "network_required": bool(dependencies) or execution.network_enabled,
+            "approval_scope": {
+                "command_execution": execution.local_process.approval_scope.command_execution,
+                "dependency_install": execution.local_process.approval_scope.dependency_install,
+                "workspace_write": execution.local_process.approval_scope.workspace_write,
+                "network_access": execution.local_process.approval_scope.network_access,
+            },
+        }
+
+    def _execution_input_files_for_brief(self, brief: TaskBrief) -> list[str]:
+        context = brief.context or {}
+        if str(context.get("user_code") or "").strip():
+            return ["workspace/"]
+        paths = [str(item).strip() for item in context.get("paths", []) if str(item).strip()]
+        path = str(context.get("path") or "").strip()
+        if path and path not in paths:
+            paths.insert(0, path)
+        if brief.intent in {"project_analysis", "script_execution"} and not paths:
+            return ["workspace/"]
+        return paths
+
+    def _execution_dependencies_for_brief(self, brief: TaskBrief) -> list[str]:
+        context = brief.context or {}
+        requested = [str(item).strip() for item in context.get("dependencies", []) if str(item).strip()]
+        if requested:
+            return list(dict.fromkeys(requested))
+        if brief.intent in {"data_analysis", "notebook_like_analysis"}:
+            return ["pandas", "numpy", "openpyxl"]
+        if brief.intent == "chart_generation":
+            return ["pandas", "numpy", "matplotlib", "seaborn", "openpyxl"]
+        return []
 
     def _clarify_interrupt(self, state: AgentState) -> AgentState:
         if interrupt is None:
@@ -752,7 +890,7 @@ class MainAgent(AgentRoutingMixin, AgentDebugMixin, AgentResponseSynthesizerMixi
                         continue
                 if not artifacts:
                     ok = False
-                    lines.append(f"- 没有可发布的 artifacts，因此未向 {target_dir} 写入图表文件。请先解决 CodeAgent/OpenSandbox 执行失败。")
+                    lines.append(f"- 没有可发布的 artifacts，因此未向 {target_dir} 写入图表文件。请先解决 CodeAgent/code_sandbox 执行失败。")
                     continue
                 for artifact in artifacts:
                     source = str(artifact.get("path") or "").strip()
@@ -830,6 +968,7 @@ class MainAgent(AgentRoutingMixin, AgentDebugMixin, AgentResponseSynthesizerMixi
             "clarification": None,
             "plan": None,
             "workspace_confirmation": None,
+            "execution_approval": None,
         }
         if interrupt_type == "clarification":
             metadata["clarification"] = payload.get("clarification")
@@ -837,9 +976,17 @@ class MainAgent(AgentRoutingMixin, AgentDebugMixin, AgentResponseSynthesizerMixi
             metadata["plan"] = payload.get("plan")
         elif interrupt_type == "workspace_confirmation":
             metadata["workspace_confirmation"] = payload.get("workspace_confirmation")
+        elif interrupt_type == "execution_approval":
+            metadata["execution_approval"] = payload.get("execution_approval")
         return metadata
 
     def _resume_summary(self, interrupt_type: str | None, payload: dict[str, Any]) -> str:
+        if interrupt_type == "execution_approval":
+            decision = payload.get("decision")
+            run_id = payload.get("run_id") or ""
+            if decision == "approve":
+                return f"Approved local process execution: {run_id}"
+            return f"Cancelled local process execution: {run_id}"
         if interrupt_type == "clarification":
             answers = payload.get("answers") or {}
             lines = ["补充信息："]

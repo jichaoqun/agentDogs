@@ -59,14 +59,17 @@ search:
   enabled: true
 ```
 
-如需测试 CodeAgent 沙箱执行：
+如需测试 CodeAgent 执行后端：
 
 ```yaml
 code_execution:
   enabled: true
+  backend: local_process # opensandbox | local_process
+  local_process:
+    require_human_approval: true
 ```
 
-如果 OpenSandbox Server 不可用或 `code_execution.enabled=false`，CodeAgent 应返回明确失败，且不能回退到宿主机 Python。
+如果配置的执行后端不可用或 `code_execution.enabled=false`，CodeAgent 应返回明确失败，且不能自动切换到其他后端。`local_process` 不是强安全沙箱，首次执行应进入 `execution_approval` 等待人工确认。
 
 ## 自动化回归测试
 
@@ -85,7 +88,7 @@ python -m unittest discover -s tests -q
 - prompt 构造函数。
 - 文件读取路径提取。
 - SearchAgent 与 FileAgent。
-- CodeAgent OpenSandbox 沙箱、Excel 路由、图表 artifact。
+- CodeAgent 执行后端、Excel 路由、图表 artifact。
 - TaskAgent 对 File/Search/Code 步骤的委派。
 
 ## 通用检查维度
@@ -272,7 +275,7 @@ python -m unittest discover -s tests -q
 
 ## Level 5：CodeAgent 数据分析
 
-### 5.1 OpenSandbox 未启用时的安全失败
+### 5.1 执行后端未启用时的安全失败
 
 前置条件：
 
@@ -293,7 +296,7 @@ code_execution:
 - `TaskBrief.delegate_to = code_agent`
 - 子 Agent：`CodeAgent`
 - 工具调用：`code_sandbox`
-- 最终回答明确说明沙箱未启用或不可用。
+- 最终回答明确说明执行后端未启用或不可用。
 - 不能回退到宿主机 Python。
 
 ### 5.2 CSV 数据分析
@@ -305,7 +308,7 @@ code_execution:
   enabled: true
 ```
 
-OpenSandbox Server 可用。
+配置的执行后端可用。使用 `opensandbox` 时需要 OpenSandbox Server；使用 `local_process` 时需要人工批准执行。
 
 用户输入：
 
@@ -317,7 +320,7 @@ OpenSandbox Server 可用。
 
 - `TaskBrief.intent = data_analysis`
 - `TaskBrief.delegate_to = code_agent`
-- CodeAgent 在 OpenSandbox 沙箱执行。
+- CodeAgent 通过配置的 `code_sandbox` 后端执行。
 - workspace 只读。
 - 最终回答包含行数、列名、数值列统计等摘要。
 
@@ -346,7 +349,7 @@ OpenSandbox Server 可用。
 
 注意：
 
-- 如果 OpenSandbox 镜像缺少 `matplotlib`，应返回明确错误。
+- 如果执行环境缺少 `matplotlib` 且依赖安装不可用，应返回明确错误。
 - 不应编造图表已生成。
 
 ### 5.4 Excel 表格数据分析

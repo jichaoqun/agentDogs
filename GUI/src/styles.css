@@ -208,6 +208,8 @@ button { color: inherit; }
 .plan-body::-webkit-scrollbar-thumb { border: 2px solid #f1f1ea; border-radius: 999px; background: #9aaa95; }
 .plan-body::-webkit-scrollbar-track { background: #f1f1ea; }
 .plan-section { border: 1px solid #e0ded5; border-radius: 10px; padding: 12px; background: #fff; }
+.plan-section.execution-warning { border-color: #e7c5bf; background: #fff8f6; }
+.plan-section.execution-warning p { display: flex; align-items: flex-start; gap: 7px; color: #7d3f35; }
 .plan-section span, .plan-feedback span { display: block; margin-bottom: 8px; color: #7c887f; font-size: 11px; font-weight: 800; }
 .plan-section p { margin: 0; color: #30413d; line-height: 1.65; }
 .plan-section ol, .plan-section ul { margin: 0; padding-left: 20px; color: #30413d; line-height: 1.7; }

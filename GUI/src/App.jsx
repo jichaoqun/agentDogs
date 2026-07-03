@@ -428,7 +428,7 @@ function AgentDebugPanel({ message }) {
   )
 }
 
-function Message({ message, onClarify, onPlan, onWorkspaceConfirm, canResume, showDebugPanel }) {
+function Message({ message, onClarify, onPlan, onWorkspaceConfirm, onExecutionApproval, canResume, showDebugPanel }) {
   const assistant = message.role === 'assistant'
   const interrupt = message.interrupt
   const time = formatMessageTime(message.created_at)
@@ -465,6 +465,11 @@ function Message({ message, onClarify, onPlan, onWorkspaceConfirm, canResume, sh
         {assistant && canResume && interrupt?.type === 'workspace_confirmation' ? (
           <button type="button" className="clarify-open" onClick={() => onWorkspaceConfirm(interrupt)}>
             确认写入
+          </button>
+        ) : null}
+        {assistant && canResume && interrupt?.type === 'execution_approval' ? (
+          <button type="button" className="clarify-open" onClick={() => onExecutionApproval(interrupt)}>
+            Approve local run
           </button>
         ) : null}
         {showDebug ? <AgentDebugPanel message={message} /> : null}
@@ -670,7 +675,7 @@ function WorkspaceConfirmDialog({ interrupt, onClose, onApprove, onCancel, disab
               {confirmations.map((item, index) => (
                 <li key={`${index}-${item.action || 'action'}`}>
                   <strong>{item.action || 'workspace_write'}</strong>
-                  {item.target_directory ? <span> -> {item.target_directory}</span> : null}
+                  {item.target_directory ? <span>{' -> '}{item.target_directory}</span> : null}
                   <p>{item.step}</p>
                 </li>
               ))}
@@ -692,6 +697,65 @@ function WorkspaceConfirmDialog({ interrupt, onClose, onApprove, onCancel, disab
         <div className="clarify-actions plan-actions">
           <button type="button" onClick={onCancel} disabled={disabled}>取消写入</button>
           <button type="button" className="primary" onClick={onApprove} disabled={disabled}>确认执行写入</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function ExecutionApprovalDialog({ interrupt, onClose, onApprove, onCancel, disabled }) {
+  const payload = interrupt?.execution_approval
+  if (!payload) return null
+  const warnings = Array.isArray(payload.warnings) ? payload.warnings : []
+  const inputFiles = Array.isArray(payload.input_files) ? payload.input_files : []
+  const dependencies = Array.isArray(payload.dependencies) ? payload.dependencies : []
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="clarify-modal plan-modal" role="dialog" aria-modal="true" aria-labelledby="execution-approval-title">
+        <div className="clarify-header">
+          <div>
+            <strong id="execution-approval-title">Confirm Local Execution</strong>
+            <span>This will run Python on this machine. It is not a strong sandbox.</span>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close local execution confirmation"><X size={18} /></button>
+        </div>
+        <div className="plan-body">
+          <section className="plan-section execution-warning">
+            <span>Risk</span>
+            <p><AlertTriangle size={15} /> {warnings[0] || 'Local process execution is not a strong security sandbox.'}</p>
+          </section>
+          <section className="plan-section">
+            <span>Run</span>
+            <ul>
+              <li>Backend: {payload.backend || 'local_process'}</li>
+              <li>Isolation: {payload.isolation || 'none'}</li>
+              <li>Run id: {payload.run_id || '-'}</li>
+              <li>Python: {payload.python_executable || 'current Python'}</li>
+              <li>Artifacts: {payload.artifacts_dir || 'runtime/artifacts'}</li>
+            </ul>
+          </section>
+          <section className="plan-section">
+            <span>Workspace input</span>
+            {inputFiles.length ? (
+              <ul>{inputFiles.map((item) => <li key={item}>{item}</li>)}</ul>
+            ) : (
+              <p>No explicit file list. The task may stage the workspace according to the runner rules.</p>
+            )}
+          </section>
+          <section className="plan-section">
+            <span>Dependencies and network</span>
+            {dependencies.length ? (
+              <ul>{dependencies.map((item) => <li key={item}>{item}</li>)}</ul>
+            ) : (
+              <p>No dependency install requested.</p>
+            )}
+            <p>Network requested: {payload.network_required ? 'yes' : 'no'}</p>
+          </section>
+        </div>
+        <div className="clarify-actions plan-actions">
+          <button type="button" onClick={onCancel} disabled={disabled}>Cancel</button>
+          <button type="button" className="primary" onClick={onApprove} disabled={disabled}>Approve and run</button>
         </div>
       </section>
     </div>
@@ -758,6 +822,7 @@ export default function App() {
   const [planDialog, setPlanDialog] = useState(null)
   const [planFeedback, setPlanFeedback] = useState('')
   const [workspaceDialog, setWorkspaceDialog] = useState(null)
+  const [executionDialog, setExecutionDialog] = useState(null)
   const [fileTree, setFileTree] = useState(null)
   const [expandedDirs, setExpandedDirs] = useState(new Set(['']))
   const [selectedFile, setSelectedFile] = useState(null)
@@ -867,6 +932,8 @@ export default function App() {
       openPlan(interrupt)
     } else if (interrupt?.type === 'workspace_confirmation') {
       setWorkspaceDialog(interrupt)
+    } else if (interrupt?.type === 'execution_approval') {
+      setExecutionDialog(interrupt)
     }
   }
 
@@ -1005,6 +1072,25 @@ export default function App() {
         interrupt_id: interrupt.id,
         type: 'workspace_confirmation',
         decision,
+      },
+      userText,
+    )
+  }
+
+  async function submitExecutionDecision(decision) {
+    if (!executionDialog || busy) return
+    const interrupt = executionDialog
+    const payload = interrupt.execution_approval || {}
+    const userText = decision === 'approve'
+      ? `Approved local process execution: ${payload.run_id || ''}`
+      : `Cancelled local process execution: ${payload.run_id || ''}`
+    setExecutionDialog(null)
+    await resumeAgent(
+      {
+        interrupt_id: interrupt.id,
+        type: 'execution_approval',
+        decision,
+        run_id: payload.run_id,
       },
       userText,
     )
@@ -1195,6 +1281,13 @@ export default function App() {
         onCancel={() => submitWorkspaceDecision('cancel')}
         disabled={busy}
       />
+      <ExecutionApprovalDialog
+        interrupt={executionDialog}
+        onClose={() => setExecutionDialog(null)}
+        onApprove={() => submitExecutionDecision('approve')}
+        onCancel={() => submitExecutionDecision('cancel')}
+        disabled={busy}
+      />
       <aside className="sidebar">
         <div className="brand-row">
           <div className="brand"><span className="brand-mark"><Bot size={20} /></span><span>Agent Dogs</span></div>
@@ -1284,6 +1377,7 @@ export default function App() {
                     onClarify={openClarification}
                     onPlan={openPlan}
                     onWorkspaceConfirm={setWorkspaceDialog}
+                    onExecutionApproval={setExecutionDialog}
                     canResume={index === latestPendingInterruptIndex}
                     showDebugPanel={debugPanelEnabled}
                   />

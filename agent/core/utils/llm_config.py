@@ -55,6 +55,24 @@ class OpenSandboxConfig:
 
 
 @dataclass(slots=True)
+class LocalProcessApprovalScope:
+    command_execution: str = "always"
+    dependency_install: str = "first_time"
+    workspace_write: str = "always"
+    network_access: str = "always"
+
+
+@dataclass(slots=True)
+class LocalProcessConfig:
+    python_executable: str = ""
+    runs_dir: str = "runtime/local_runs"
+    deps_dir: str = "runtime/local_deps"
+    cleanup_runs: bool = True
+    require_human_approval: bool = True
+    approval_scope: LocalProcessApprovalScope = field(default_factory=LocalProcessApprovalScope)
+
+
+@dataclass(slots=True)
 class CodeExecutionConfig:
     enabled: bool = False
     backend: str = "opensandbox"
@@ -81,6 +99,7 @@ class CodeExecutionConfig:
     max_artifact_bytes: int = 25 * 1024 * 1024
     allow_user_script_execution: bool = False
     opensandbox: OpenSandboxConfig = field(default_factory=OpenSandboxConfig)
+    local_process: LocalProcessConfig = field(default_factory=LocalProcessConfig)
 
 
 @dataclass(slots=True)
@@ -154,8 +173,8 @@ def _code_execution_config(data: dict[str, Any] | None) -> CodeExecutionConfig:
     if not isinstance(source, dict):
         raise ConfigError("code_execution must be an object")
     backend = str(source.get("backend", "opensandbox")).lower()
-    if backend != "opensandbox":
-        raise ConfigError("code_execution.backend only supports opensandbox")
+    if backend not in {"opensandbox", "local_process"}:
+        raise ConfigError("code_execution.backend only supports opensandbox or local_process")
     timeout = max(1, min(int(source.get("timeout_seconds", 20)), 300))
     cpu_limit = max(0.1, min(float(source.get("cpu_limit", 1.0)), 8.0))
     max_output = max(1_000, min(int(source.get("max_output_chars", 12_000)), 200_000))
@@ -183,6 +202,27 @@ def _code_execution_config(data: dict[str, Any] | None) -> CodeExecutionConfig:
         raise ConfigError("code_execution.opensandbox.protocol must be http or https")
     request_timeout = max(1, min(int(opensandbox_source.get("request_timeout_seconds", 60)), 600))
     ready_timeout = max(1, min(int(opensandbox_source.get("ready_timeout_seconds", 30)), 300))
+    local_process_source = source.get("local_process", {}) or {}
+    if not isinstance(local_process_source, dict):
+        raise ConfigError("code_execution.local_process must be an object")
+    approval_scope_source = local_process_source.get("approval_scope", {}) or {}
+    if not isinstance(approval_scope_source, dict):
+        raise ConfigError("code_execution.local_process.approval_scope must be an object")
+    approval_values = {"always", "first_time", "never"}
+    approval_scope = LocalProcessApprovalScope(
+        command_execution=str(approval_scope_source.get("command_execution", "always")).lower(),
+        dependency_install=str(approval_scope_source.get("dependency_install", "first_time")).lower(),
+        workspace_write=str(approval_scope_source.get("workspace_write", "always")).lower(),
+        network_access=str(approval_scope_source.get("network_access", "always")).lower(),
+    )
+    for key, value in {
+        "command_execution": approval_scope.command_execution,
+        "dependency_install": approval_scope.dependency_install,
+        "workspace_write": approval_scope.workspace_write,
+        "network_access": approval_scope.network_access,
+    }.items():
+        if value not in approval_values:
+            raise ConfigError(f"code_execution.local_process.approval_scope.{key} must be always, first_time, or never")
     return CodeExecutionConfig(
         enabled=bool(source.get("enabled", False)),
         backend=backend,
@@ -207,6 +247,14 @@ def _code_execution_config(data: dict[str, Any] | None) -> CodeExecutionConfig:
             request_timeout_seconds=request_timeout,
             use_server_proxy=bool(opensandbox_source.get("use_server_proxy", False)),
             ready_timeout_seconds=ready_timeout,
+        ),
+        local_process=LocalProcessConfig(
+            python_executable=str(local_process_source.get("python_executable", "")),
+            runs_dir=str(local_process_source.get("runs_dir", "runtime/local_runs")),
+            deps_dir=str(local_process_source.get("deps_dir", "runtime/local_deps")),
+            cleanup_runs=bool(local_process_source.get("cleanup_runs", True)),
+            require_human_approval=bool(local_process_source.get("require_human_approval", True)),
+            approval_scope=approval_scope,
         ),
     )
 
