@@ -1000,6 +1000,68 @@ code_execution:
         self.assertEqual(config.code_execution.max_artifacts, 9)
         self.assertEqual(config.code_execution.max_artifact_bytes, 123456)
 
+    def test_config_loads_multiple_openai_compatible_providers(self):
+        content = """
+default_model: {provider: deepseek, model: deepseek-chat}
+providers:
+  deepseek:
+    type: openai_compatible
+    enabled: true
+    api_key: ${TEST_DEEPSEEK_KEY}
+    model: deepseek-chat
+    base_url: https://api.deepseek.com
+    models: [deepseek-chat, deepseek-reasoner]
+  openai:
+    type: openai_compatible
+    enabled: true
+    api_key: ${TEST_OPENAI_KEY}
+    model: gpt-4.1-mini
+    base_url: https://api.openai.com/v1
+    models: [gpt-4.1-mini]
+  siliconflow:
+    type: openai_compatible
+    enabled: false
+    api_key: ${TEST_SILICONFLOW_KEY:-}
+    model: Qwen/Qwen2.5-72B-Instruct
+    base_url: https://api.siliconflow.cn/v1
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config" / "llm.yaml"
+            path.parent.mkdir()
+            path.write_text(content, encoding="utf-8")
+            with patch.dict(os.environ, {"TEST_DEEPSEEK_KEY": "deepseek-secret", "TEST_OPENAI_KEY": "openai-secret"}):
+                config = load_config(path)
+
+        self.assertEqual((config.default_provider, config.default_model), ("deepseek", "deepseek-chat"))
+        self.assertEqual(config.providers["deepseek"].type, "openai_compatible")
+        self.assertEqual(config.providers["openai"].type, "openai_compatible")
+        self.assertEqual(config.providers["deepseek"].api_key, "deepseek-secret")
+        self.assertEqual(config.providers["openai"].api_key, "openai-secret")
+        self.assertFalse(config.providers["siliconflow"].enabled)
+
+        manager = ModelManager(config)
+        models = {(item.provider, item.model) for item in manager.list_models()}
+        self.assertIn(("deepseek", "deepseek-chat"), models)
+        self.assertIn(("deepseek", "deepseek-reasoner"), models)
+        self.assertIn(("openai", "gpt-4.1-mini"), models)
+        self.assertNotIn(("siliconflow", "Qwen/Qwen2.5-72B-Instruct"), models)
+
+    def test_config_rejects_unknown_provider_type(self):
+        content = """
+default_model: {provider: mystery, model: demo}
+providers:
+  mystery:
+    type: made_up
+    enabled: true
+    model: demo
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config" / "llm.yaml"
+            path.parent.mkdir()
+            path.write_text(content, encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "type 'made_up' is not supported"):
+                load_config(path)
+
     def test_config_rejects_docker_backend(self):
         content = """
 default_model: {provider: api, model: demo}

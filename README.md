@@ -11,6 +11,27 @@ Agent Dogs 是一个本地运行的 Agent 助手项目，包含 FastAPI 后端�
 - 搜索工具：workspace 搜索、关键词搜索、可选联网搜索。
 - CodeAgent：支持 OpenSandbox 或需人工授权的 local_process 后端，用 Python 完成数据分析、图表生成、代码/项目分析、代码生成和受控脚本执行。
 
+### 模型配置与密钥
+
+模型配置支持多个 Provider。OpenAI-compatible API 使用 `type: openai_compatible`，例如 `deepseek`、`openai`、`siliconflow` 可以同时存在：
+
+```yaml
+default_model:
+  provider: deepseek
+  model: deepseek-v4-flash
+
+providers:
+  deepseek:
+    type: openai_compatible
+    enabled: true
+    base_url: https://api.deepseek.com
+    api_key: ${DEEPSEEK_API_KEY}
+    model: deepseek-v4-flash
+    models: [deepseek-v4-flash, deepseek-v4-pro]
+```
+
+`config/llm.example.yaml` 是可提交的示例配置；`config/llm.yaml` 和 `config/llm.local.yaml` 是本机私有配置，已加入 `.gitignore`。不要把真实 API key 写入 Git，建议通过环境变量提供，例如 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`SILICONFLOW_API_KEY`。
+
 ### CodeAgent 执行后端
 
 `code_execution.backend` 支持：

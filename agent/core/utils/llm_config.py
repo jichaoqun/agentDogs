@@ -16,6 +16,7 @@ from .prompt import DEFAULT_SYSTEM_PROMPT
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "llm.yaml"
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+SUPPORTED_PROVIDER_TYPES = {"openai_compatible", "ollama", "builtin"}
 
 
 class ConfigError(ValueError):
@@ -24,6 +25,7 @@ class ConfigError(ValueError):
 
 @dataclass(slots=True)
 class ProviderConfig:
+    type: str = "openai_compatible"
     enabled: bool = True
     model: str = ""
     base_url: str = ""
@@ -132,17 +134,30 @@ def _expand_env(value: Any) -> Any:
     return value
 
 
+def _default_provider_type(name: str) -> str:
+    if name == "api":
+        return "openai_compatible"
+    if name in {"ollama", "builtin"}:
+        return name
+    return "openai_compatible"
+
+
 def _provider_config(name: str, data: dict[str, Any], source: Path) -> ProviderConfig:
     known = {
-        "enabled", "model", "base_url", "api_key", "timeout",
+        "type", "enabled", "model", "base_url", "api_key", "timeout",
         "temperature", "max_tokens",
     }
+    provider_type = str(data.get("type", _default_provider_type(name))).lower()
+    if provider_type not in SUPPORTED_PROVIDER_TYPES:
+        supported = ", ".join(sorted(SUPPORTED_PROVIDER_TYPES))
+        raise ConfigError(f"Provider '{name}' type '{provider_type}' is not supported; supported: {supported}")
     model = str(data.get("model", ""))
-    if name == "builtin" and model:
+    if provider_type == "builtin" and model:
         model_path = Path(model)
         if not model_path.is_absolute():
             model = str((source.parent / model_path).resolve())
     return ProviderConfig(
+        type=provider_type,
         enabled=bool(data.get("enabled", True)),
         model=model,
         base_url=str(data.get("base_url", "")).rstrip("/"),
@@ -274,10 +289,11 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     provider_data = raw.get("providers", {})
     if not isinstance(provider_data, dict):
         raise ConfigError("providers 必须是对象")
-    providers = {
-        name: _provider_config(name, provider_data.get(name, {}), source)
-        for name in ("api", "ollama", "builtin")
-    }
+    providers: dict[str, ProviderConfig] = {}
+    for name, data in provider_data.items():
+        if not isinstance(data or {}, dict):
+            raise ConfigError(f"Provider '{name}' must be an object")
+        providers[str(name)] = _provider_config(str(name), data or {}, source)
     if not any(provider.enabled for provider in providers.values()):
         raise ConfigError("至少需要启用一个模型后端")
 

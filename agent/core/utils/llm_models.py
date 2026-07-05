@@ -220,7 +220,7 @@ class _LangChainProvider(ModelProvider):
 class OpenAIProvider(_LangChainProvider):
     """OpenAI-compatible HTTP APIs, including user-supplied compatible APIs."""
 
-    provider_id = "api"
+    provider_id = "openai_compatible"
 
     def configured_models(self) -> list[str]:
         configured = self.config.extra.get("models", [])
@@ -431,7 +431,7 @@ class BuiltinProvider(ModelProvider):
 
 
 PROVIDER_TYPES: dict[str, type[ModelProvider]] = {
-    "api": OpenAIProvider,
+    "openai_compatible": OpenAIProvider,
     "ollama": OllamaProvider,
     "builtin": BuiltinProvider,
 }
@@ -442,15 +442,27 @@ class ModelManager:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.providers: dict[str, ModelProvider] = {
-            name: PROVIDER_TYPES[name](provider_config)
-            for name, provider_config in config.providers.items()
-            if provider_config.enabled
-        }
+        self.providers: dict[str, ModelProvider] = {}
+        for name, provider_config in config.providers.items():
+            if not provider_config.enabled:
+                continue
+            provider_type = self._provider_type(name, provider_config)
+            provider_cls = PROVIDER_TYPES.get(provider_type)
+            if provider_cls is None:
+                supported = ", ".join(sorted(PROVIDER_TYPES))
+                raise ProviderNotFound(f"Provider '{name}' type '{provider_type}' is not supported; supported: {supported}")
+            provider = provider_cls(provider_config)
+            provider.provider_id = name
+            self.providers[name] = provider
         self.default_selection = ModelSelection(
             config.default_provider,
             config.default_model,
         )
+
+    def _provider_type(self, name: str, provider_config: ProviderConfig) -> str:
+        if provider_config.type == "openai_compatible" and name in {"ollama", "builtin"}:
+            return name
+        return provider_config.type
 
     def list_models(self, provider: str | None = None) -> list[ModelInfo]:
         if provider is not None:
@@ -478,7 +490,7 @@ class ModelManager:
         tagged_reasoning, content, incomplete = _split_reasoning(
             raw_content,
             thinking_started=(
-                generation.thinking_enabled and selected.provider == BuiltinProvider.provider_id
+                generation.thinking_enabled and isinstance(provider, BuiltinProvider)
             ),
         )
         reasoning = metadata_reasoning or tagged_reasoning

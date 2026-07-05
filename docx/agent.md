@@ -60,11 +60,13 @@ Agent Dogs 当前采用“MainAgent 任务理解与编排 + 子 Agent 领域自�
 
 模型层由 `agent/core/utils/llm_models.py` 统一封装，配置来自 `config/llm.yaml`。
 
-支持 Provider：
+支持 Provider type：
 
-- `api`: OpenAI-compatible API。
+- `openai_compatible`: OpenAI-compatible API，可配置为 `deepseek`、`openai`、`siliconflow` 等多个 Provider。
 - `ollama`: 本地 Ollama 服务。
 - `builtin`: 项目内置本地模型。
+
+`providers` 的 key 是运行时 Provider 名称，`type` 决定底层实现。例如 `deepseek` 和 `openai` 都可以使用 `type: openai_compatible`，但前端和 API 仍会看到不同的 provider 名称。
 
 模型选择、温度、最大输出长度和 thinking 参数由前端传给后端，最终以 `GenerationOptions` 传入模型层。模型调用不会在 Provider 之间静默 fallback；显式选择的 Provider 失败时直接返回错误。
 

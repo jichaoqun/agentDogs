@@ -32,3 +32,10 @@ workspace/
 runtime/
 GUI/.pnpm-store
 GUI/.npm-cache
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+*.key
+config/llm.yaml
+config/llm.local.yaml
