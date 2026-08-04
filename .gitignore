@@ -1,0 +1,35 @@
+# Local agent configuration and secrets
+.env
+.env.*
+*.key
+config/llm.yaml
+config/llm.local.yaml
+
+# Local models, workspaces, and runtime outputs
+model/
+workspace/
+runtime/
+
+# Python environments and caches
+.venv/
+venv/
+.uv-cache/
+.uv-python/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Frontend dependencies and generated output
+GUI/node_modules/
+GUI/dist/
+GUI/.npm-cache/
+GUI/.pnpm-store/
+
+# Local editor and agent metadata
+.vscode/
+.agents/
+.codex/
+
+# OS files
+.DS_Store
+Thumbs.db
