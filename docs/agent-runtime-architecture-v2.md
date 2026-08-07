@@ -9,9 +9,11 @@
 1. **可控制**：会话并发、状态转换、权限、审批、取消、超时、预算和持久化必须由代码控制。
 2. **可动态决策**：Agent 可以根据模型输出和工具结果动态决定下一步，不再依赖一次性的固定任务分类。
 
-目标架构不是纯固定 Workflow，也不是完全自治的单体 ReAct 循环，而是：
+目标架构不是纯固定 Workflow，也不是完全自治的单体 ReAct 循环，而是一个四层受控自治架构：
 
 > Session Runtime + Control Graph + Coordinator + 受限领域 ReAct Agent + Tool Runtime。
+
+其中领域 Agent 与 Tool Runtime 共同组成第四层“执行能力层”。Coordinator、Planner 和通用 ReAct Runtime 共同组成第三层“智能编排层”。
 
 横向配套系统包括：
 
@@ -22,6 +24,26 @@
 - Skills
 - Session Store
 - Observability
+
+### 1.1 四层详细设计文档
+
+本文档只负责整体架构思想、层级关系和全局约束。每层的详细需求、接口、状态、实现方式、异常处理、测试和验收标准分别定义在：
+
+1. [第一层：Session Runtime 设计](layer-1-session-runtime.md)
+2. [第二层：Main Control Graph 设计](layer-2-control-graph.md)
+3. [第三层：Coordinator 与 ReAct Runtime 设计](layer-3-coordination-react-runtime.md)
+4. [第四层：Domain Agents、Tools 与信息能力设计](layer-4-capability-runtime.md)
+
+四层依赖方向必须保持单向：
+
+```text
+Session Runtime
+    → Control Graph
+        → Coordinator / ReAct Runtime
+            → Domain Agents / Tool Runtime
+```
+
+Memory、Knowledge、Skills、Context、Policy、Persistence 和 Observability 是横向能力，但必须通过明确接口接入，不能反向控制上层生命周期。
 
 ## 2. 设计原则
 
@@ -659,7 +681,7 @@ class TaskResult(BaseModel):
 
 不得把全部工作轨迹复制给下一个 Agent。
 
-## 8. 第五层：Tool Runtime
+## 8. 第四层基础设施：Tool Runtime
 
 ### 8.1 定位
 
@@ -1281,4 +1303,3 @@ agent/
 - 全自动高风险操作。
 
 这些能力需要在 V2 基础协议稳定后再评估。
-
