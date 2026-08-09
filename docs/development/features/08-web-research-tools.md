@@ -1,4 +1,4 @@
-# Web Research Tools
+# ResearchAgent 与 Web Research Tools
 
 状态：`planned`
 
@@ -21,6 +21,7 @@ ResearchAgent 可以搜索公开网络、受控获取网页内容，并返回带
 - prompt injection 数据隔离；
 - WebSourceReference、blob、缓存和 Operation Ledger；
 - Research 来源 contract tests。
+- 可用的 ResearchAgent、AgentDescriptor、AgentTask/TaskResult 与 Coordinator 委派；
 
 ### 不包含
 
@@ -54,4 +55,4 @@ ResearchAgent 可以搜索公开网络、受控获取网页内容，并返回带
 - 网络错误、429 和超时会稳定收敛；
 - 私网和本地 API 永远不能通过用户普通授权开放；
 - 大型正文不进入 Graph checkpoint。
-
+- Coordinator 可以正式委派 ResearchAgent，并得到符合来源契约的 TaskResult。

@@ -295,21 +295,21 @@ def route_agent_action(state: AgentState) -> str:
 
 ## 7. 转换矩阵
 
-| 当前状态 | 输入 | 下一状态 |
-|---|---|---|
-| initializing | 初始化成功 | coordinating |
-| coordinating | delegate/fork | running_tasks |
-| coordinating | plan | planning |
-| coordinating | clarify | waiting_clarification |
-| coordinating | final | composing_final |
-| running_tasks | 子任务产生 tool | 对应子任务进入 tool_preparing |
-| running_tasks | 子任务 complete/transfer | 更新 join 或 coordinating |
-| tool_preparing | allow | tool_executing |
-| tool_preparing | approval | waiting_approval |
-| waiting_approval | approve | tool_executing |
-| waiting_approval | reject | 对应子任务恢复 running_agent |
-| 任意非终态 | cancel | cancelled |
-| 任意非终态 | fatal error | failed |
+| 层级 | 当前状态 | 输入 | 下一状态 |
+|---|---|---|---|
+| Parent Run | initializing | 初始化成功 | coordinating |
+| Parent Run | coordinating | delegate/fork | running_tasks |
+| Parent Run | coordinating | plan | planning |
+| Parent Run | coordinating | clarify | waiting_user；对应 Task 进入 waiting_clarification |
+| Parent Run | coordinating | final | composing_final |
+| Parent Run | running_tasks | 子任务产生 tool | 保持 running_tasks；对应 Task 进入 tool_preparing |
+| Parent Run | running_tasks | 子任务 complete/transfer | 更新 join 或 coordinating |
+| Task | tool_preparing | allow | tool_executing |
+| Task | tool_preparing | approval | waiting_approval；Parent Run 聚合为 waiting_user |
+| Task | waiting_approval | approve | tool_executing；Parent Run 聚合为 running_tasks |
+| Task | waiting_approval | reject | running；Parent Run 聚合为 running_tasks |
+| Parent Run / Task | 任意非终态 | cancel | cancelled |
+| Parent Run / Task | 任意非终态 | fatal error | failed |
 
 代码中应将矩阵实现为显式验证器。
 
@@ -450,7 +450,8 @@ class TaskExecution(BaseModel):
     attempt: int
     status: Literal[
         "pending", "ready", "running", "waiting_approval",
-        "waiting_clarification", "joining", "completed",
+        "waiting_clarification", "tool_preparing", "tool_executing",
+        "tool_reconciling", "joining", "completed",
         "failed", "blocked", "cancelled", "execution_unknown"
     ]
     agent_name: str | None
@@ -460,6 +461,18 @@ class TaskExecution(BaseModel):
     budget: TaskBudget
     lease: TaskLease | None
     result_reference: str | None
+```
+
+```python
+class TaskLease(BaseModel):
+    run_id: str
+    task_id: str
+    task_attempt: int
+    lease_owner: str
+    lease_token: str
+    lease_until: datetime
+    heartbeat_at: datetime
+    recovery_attempts: int
 ```
 
 Scheduler 从 DAG 中选择所有依赖已完成的 ready task，在 `max_parallel_tasks`、全局预算、Agent 配额和工具资源限制内执行 fork。每个子任务独立 checkpoint；父 Graph 只保存引用和聚合状态。
@@ -551,7 +564,7 @@ Checkpoint 只意味着 Graph 状态已提交，不意味着外部副作用可�
 原 `finalize` 拆为：
 
 1. `compose_final_response`：只根据已提交 TaskResult 生成候选回复，无外部副作用。
-2. `commit_run_completion`：通过 SessionStore 的 `complete_run` 原子提交最终消息、RunResult、状态和 outbox event。
+2. `commit_run_completion`：通过 SessionStore 的 `finalize_run(completed, outcome, message)` 原子提交最终消息、Outcome、状态和 outbox event。Cancel 和不可恢复错误分别调用同一事务的 cancelled/failed 变体，消息可以为空。
 
 最终消息使用 `(run_id, message_kind=final_assistant)` 唯一约束。事务结果未知时查询该键；存在则视为提交成功，不再生成第二条消息。
 

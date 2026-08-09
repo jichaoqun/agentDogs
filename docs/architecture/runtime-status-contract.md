@@ -38,7 +38,7 @@ RunLifecycleStatus = Literal[
 
 ```python
 TaskExecutionStatus = Literal[
-    "pending", "ready", "running", "waiting_approval",
+    "pending", "ready", "running", "tool_preparing", "waiting_approval",
     "waiting_clarification", "tool_executing", "tool_reconciling",
     "joining", "completed", "cancelled", "failed", "blocked",
     "execution_unknown",
@@ -85,4 +85,3 @@ RunOutcome 在 Run 进入终态时与最终消息同事务提交。没有最终�
 - OutcomeStatus 不能用于决定 Session 是否接受新消息；
 - 非终态必须具有 deadline、取消、恢复或人工处理路径；
 - 未知枚举值默认拒绝并返回 schema/version 错误。
-

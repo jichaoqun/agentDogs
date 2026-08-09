@@ -64,8 +64,8 @@ M1 必须写入正式 `task_executions` 表。`begin_run` 同事务创建 `task_
 
 ```text
 begin_run = Session CAS + Run + root task + user message + event + outbox
-complete_run = final message + RunOutcome + Run terminal + Session idle + event + outbox
-fail_run = RunOutcome + Run failed + Session idle + event + outbox
+finalize_run(completed) = final message + RunOutcome + Run terminal + Session idle + event + outbox
+finalize_run(cancelled/failed) = optional message + RunOutcome + Run terminal + Session idle + event + outbox
 ```
 
 ## 5. HTTP API
@@ -113,7 +113,7 @@ primary call
  -> bounded retry for retryable error
  -> optional fallback model
  -> deterministic failed response
- -> fail_run transaction
+ -> finalize_run(failed) transaction
 ```
 
 结构化输出失败允许一次修复。取消、认证失败和不可重试参数错误不重试。迟到结果提交前检查 active run 和 revision。

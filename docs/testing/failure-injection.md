@@ -16,7 +16,7 @@ after_operation_prepare
 after_tool_side_effect_before_ledger_complete
 after_interrupt_commit_before_response
 after_final_message_before_commit
-after_complete_run_commit_before_publish
+after_finalize_run_commit_before_publish
 after_run_lease_takeover_before_resume
 after_desktop_backend_ready_before_handshake
 ```
@@ -26,7 +26,7 @@ Failpoint 可以抛出异常或立即终止测试 Worker。生产配置不能动
 ## 3. 核心不变量
 
 - 同一 idempotency key 只有一个 Run；
-- 每个 Run 只有一个最终 Assistant 消息；
+- 每个 Run 至多一个最终 Assistant 消息，cancelled/failed 可以没有；
 - 已提交事件 sequence 不重复；
 - 迟到 Worker 不能覆盖新 revision；
 - unknown 非幂等操作不自动重放；

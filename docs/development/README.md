@@ -23,8 +23,8 @@
 | 05 | [命令沙箱](features/05-command-sandbox.md) | M5 | planned |
 | 06 | [Interrupt 与审批](features/06-approval-flow.md) | M6 | planned |
 | 07 | [Planner 与并行任务](features/07-planner-parallel-tasks.md) | M7 | planned |
-| 08 | [Web Research Tools](features/08-web-research-tools.md) | M8 | planned |
-| 09 | [扩展 Agent 与 Artifact](features/09-agents-artifacts.md) | M9 | planned |
+| 08 | [ResearchAgent 与 Web Research Tools](features/08-web-research-tools.md) | M8 | planned |
+| 09 | [CodeDataAgent、Artifact 与 Research 集成](features/09-agents-artifacts.md) | M9 | planned |
 
 ## 状态定义
 

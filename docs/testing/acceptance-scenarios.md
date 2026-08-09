@@ -8,8 +8,15 @@ When 用户提交一条消息
 Then 系统创建唯一 Run
 And 保存原始用户消息
 And 调用 GeneralAgent
-And 原子保存最终 Assistant 消息
+And 原子保存 completed Run、RunOutcome 与最终 Assistant 消息
 And Session 返回可接受下一条消息的状态
+```
+
+```gherkin
+Given 一个 Run 因基础设施错误进入 failed
+When Runtime 调用 finalize_run 且没有可用的最终 Assistant 消息
+Then 系统在同一事务中保存 failed Run、RunOutcome、Session 更新与 outbox
+And 最终 Assistant 消息可以不存在
 ```
 
 ```gherkin
@@ -71,6 +78,21 @@ Given Task A 和 Task B 无依赖且 Task C 依赖二者
 When Scheduler 并发执行 A 和 B
 Then C 只在 JoinPolicy 满足后启动
 And 三个 Task 的消息、预算和工具账本相互隔离
+```
+
+```gherkin
+Given Task A 被 Worker A 持有
+And Task A 的租约已经过期
+When Worker B 使用新的 task lease_token 接管同一 run_id、task_id 和 attempt
+Then Worker A 的迟到 checkpoint、ToolResult 和 TaskResult 都返回 TASK_LEASE_LOST
+And Task recovery_attempts 只增加一次
+```
+
+```gherkin
+Given Run A 的 root Task attempt 1 获得 task lifetime PermissionGrant
+When Run B 的 root Task attempt 1 请求相同 capability
+Then Run A 的授权不匹配 Run B 的复合 Task 身份
+And Run B 必须独立通过 Policy 与审批流程
 ```
 
 ## M8：Web Research

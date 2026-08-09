@@ -496,19 +496,22 @@ class SessionStore(Protocol):
         events: list[RuntimeEvent],
     ) -> RunSnapshot: ...
 
-    def complete_run(
+    def finalize_run(
         self,
         *,
         run_id: str,
         expected_revision: int,
         lease_token: str,
-        assistant_message: SessionMessage,
-        result: RunResultRecord,
+        lifecycle_status: Literal["completed", "cancelled", "failed"],
+        outcome: RunOutcome,
+        assistant_message: SessionMessage | None,
         events: list[RuntimeEvent],
     ) -> RunSnapshot: ...
 ```
 
 每个操作在一个事务中更新 Run、Session、checkpoint、消息和 outbox。事件发布失败不得回滚业务事实；后台 publisher 从 outbox 重试发布。
+
+`finalize_run` 约束：`RunOutcome` 始终存在；`completed` 默认必须提供最终 Assistant 消息，只有明确的无回复完成策略可以例外；`cancelled/failed` 可以没有消息。无论终态为何，Run、Outcome、可选消息、Session.active_run_id、SessionStatus 和 outbox 必须在同一事务提交。
 
 ### 13.4 Interrupt 幂等
 
@@ -518,14 +521,22 @@ class SessionStore(Protocol):
 
 ### 13.5 重启恢复矩阵
 
-| 持久状态 | 恢复动作 |
-|---|---|
-| `initializing/coordinating/running_tasks/planning/compressing/composing_final` | 从最近 checkpoint 重新执行无副作用节点；running_tasks 按各 TaskExecution checkpoint 分别接管 |
-| `waiting_approval/waiting_clarification` | 恢复 Interrupt，继续等待用户 |
-| `tool_preparing/tool_executing/tool_reconciling` | 查询 Operation Ledger，禁止直接重放 |
-| `cancelling` | 重建取消意图，终止可定位的执行并等待租约收敛 |
-| `execution_unknown` | 执行工具对账；无法确认时请求人工处理 |
-| 终态 | 不重新执行，只补发未发布 outbox event |
+恢复器联合读取父 `RunLifecycleStatus` 和每个 `TaskExecutionStatus`。Task 状态不写入 Run status 列；父状态由 Task 集合聚合。
+
+| 父 Run 状态 | 子 Task 状态 | 恢复动作 |
+|---|---|---|
+| `initializing/coordinating/planning/compressing/composing_final` | 任意已提交状态 | 从父 checkpoint 重放无副作用节点 |
+| `running_tasks` | `pending/ready` | 重新计算 ready 集合并调度 |
+| `running_tasks` | `running` | 从 Task checkpoint 接管 Agent step |
+| `waiting_user` | `waiting_approval/waiting_clarification` | 恢复对应 Interrupt，继续等待用户 |
+| `running_tasks` | `tool_preparing` | 查询 prepared Operation；尚未执行时可按原 operation_id 继续 |
+| `running_tasks` | `tool_executing/tool_reconciling` | 查询 Operation Ledger 并对账，禁止直接重放 |
+| `execution_unknown` | 任一 `execution_unknown` | 保持父 Run unknown，执行对账或请求人工处理 |
+| `cancelling` | 任意非终态 | 重建取消意图，传播到所有 Task 并等待租约收敛 |
+| `joining` | Task 均为终态或 join 可判定 | 重新计算 JoinPolicy，不重新执行已完成 Task |
+| 终态 | 任意 | 不重新执行，只补发未发布 outbox event |
+
+聚合规则：任一 Task 等待审批或澄清时，父 Run 为 `waiting_user`；Tool preparing/executing/reconciling 时父 Run 通常为 `running_tasks`；只有无法对账的 Task 才把父 Run 提升为 `execution_unknown`。
 
 启动恢复器扫描租约过期的非终态 Run，执行 CAS 接管。超过 `max_recovery_attempts` 后进入 `failed` 或 `execution_unknown`，不得无限恢复。
 

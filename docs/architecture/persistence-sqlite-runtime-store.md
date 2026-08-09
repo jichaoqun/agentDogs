@@ -133,13 +133,24 @@ CREATE TABLE permission_grants (
     scope_json TEXT NOT NULL,
     lifetime TEXT NOT NULL,
     session_id TEXT,
+    run_id TEXT,
     task_id TEXT,
+    task_attempt INTEGER,
     policy_version TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1,
     expires_at TEXT,
     revoked_at TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    CHECK (
+        lifetime <> 'task'
+        OR (run_id IS NOT NULL AND task_id IS NOT NULL AND task_attempt IS NOT NULL)
+    ),
+    CHECK (lifetime <> 'session' OR session_id IS NOT NULL),
+    CHECK (lifetime <> 'workspace' OR workspace_id IS NOT NULL),
+    FOREIGN KEY(session_id) REFERENCES sessions(session_id),
+    FOREIGN KEY(run_id, task_id, task_attempt)
+        REFERENCES task_executions(run_id, task_id, attempt)
 );
 ```
 
@@ -238,7 +249,10 @@ CREATE TABLE task_executions (
     pending_operation_id TEXT,
     result_reference TEXT,
     lease_owner TEXT,
+    lease_token TEXT,
     lease_until TEXT,
+    heartbeat_at TEXT,
+    recovery_attempts INTEGER NOT NULL DEFAULT 0,
     budget_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -249,6 +263,8 @@ CREATE TABLE task_executions (
 从 M1 开始，每个 Run 在 `begin_run` 事务中创建正式 TaskExecution：`task_id='root', attempt=1`。没有 Planner 时所有模型步骤、checkpoint 和工具调用都归属 root task。M7 只增加 DAG 中的任务数量，不改变基本表、外键和身份语义。
 
 不同 TaskExecution 可由不同 Worker 运行，但各自使用 `revision` CAS；修改父 DAG readiness 或 join 状态时同时更新 Run revision。
+
+Task lease 与 Run lease 使用相同 fencing 原则：acquire/takeover 生成新的高熵 `lease_token`，renew 保持 token，Task step 提交匹配 `(run_id, task_id, attempt, revision, lease_owner, lease_token, lease_until > now)`。`recovery_attempts` 只在成功接管时递增。
 
 ### 5.5 Checkpoint 与 Interrupt
 
@@ -399,9 +415,11 @@ CREATE TABLE outbox_events (
 - 更新 Task 与父 Run 聚合状态；
 - 插入事件与 outbox。
 
-### complete_run
+### finalize_run
 
-- 插入唯一最终 Assistant 消息；
+- 校验 lifecycle status 为 completed/cancelled/failed；
+- 如果提供 Assistant 消息，插入至多一条最终消息；
+- completed 默认要求最终消息，cancelled/failed 允许为空；
 - 插入唯一 RunOutcome；
 - 更新 Run 为终态；
 - 清除 Session.active_run_id；
@@ -460,6 +478,19 @@ WHERE run_id = :run_id
 
 三种操作都要求更新行数恰好为 1，否则返回 `LEASE_CONFLICT`。每次 acquire/takeover 使用新的不可预测 token；节点提交重复同样的 worker/token/revision 条件。
 
+### Task Lease 原子操作
+
+Task acquire、renew 和 takeover 使用与 Run Lease 相同的 SQL 结构，但主键条件固定为：
+
+```sql
+WHERE run_id = :run_id
+  AND task_id = :task_id
+  AND attempt = :task_attempt
+  AND revision = :expected_revision
+```
+
+续约和节点提交额外匹配 `lease_owner + lease_token + lease_until > now`；接管额外匹配租约过期和 `recovery_attempts < max_task_recovery_attempts`。Task lease 丢失返回 `TASK_LEASE_LOST`，旧 Worker 不得再提交 checkpoint、ToolResult 或 TaskResult。
+
 ## 7. Repository 边界
 
 业务代码不得直接拼接 SQL：
@@ -478,7 +509,7 @@ class RuntimeStore(Protocol):
     def transaction(self) -> RuntimeTransaction: ...
 ```
 
-事务用例由 Store 暴露为 `begin_run`、`commit_task_step`、`commit_interrupt`、`complete_run` 等高层方法。Repository 的细粒度方法仅能在事务内部调用。
+事务用例由 Store 暴露为 `begin_run`、`commit_task_step`、`commit_interrupt`、`finalize_run` 等高层方法。Repository 的细粒度方法仅能在事务内部调用。
 
 SQLite 行转换为领域模型后才能离开 persistence 模块。其他层不能依赖 SQLite row、SQL 字段名或连接对象。
 

@@ -180,7 +180,9 @@ class PermissionGrant(BaseModel):
     scope: dict
     lifetime: Literal["once", "task", "session", "workspace"]
     session_id: str | None
+    run_id: str | None
     task_id: str | None
+    task_attempt: int | None
     policy_version: str
     revision: int
     expires_at: datetime | None
@@ -190,6 +192,8 @@ class PermissionGrant(BaseModel):
 有效权限由 Agent 工具集合、Principal grants、Workspace scope、系统 Policy 和 OS sandbox 取交集。显式 deny 优先于 allow；过期、撤销或版本不匹配的 grant 不参与决策。
 
 `PermissionGrant` 是一段时间内可复用的能力授权；下面的 `ApprovalGrant` 是对某一个不可变 operation 的一次性决定。批准 operation 可以在 Policy 允许时生成限定范围的 PermissionGrant，但二者必须分别存储和审计。
+
+当 `lifetime="task"` 时，`run_id + task_id + task_attempt` 三者必须同时存在，并与 TaskExecution 复合主键匹配；单独 task_id 永远不能作为授权身份。`session` lifetime 必须绑定 session_id，`workspace` lifetime 必须绑定 workspace_id。
 
 ## 5. Policy Engine
 

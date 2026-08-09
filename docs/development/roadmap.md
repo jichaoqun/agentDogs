@@ -11,8 +11,8 @@ M0 工程骨架
  -> M3/M4 文件能力
  -> M5/M6 安全执行与审批
  -> M7 并行编排
- -> M8 Web Research Tools
- -> M9 扩展 Agent 与 Artifact
+ -> M8 ResearchAgent 与 Web Research Tools
+ -> M9 CodeDataAgent、Artifact 与 Research 集成
 ```
 
 不先实现四层的全部抽象再集成。每个里程碑必须产生可以运行、测试和观察的系统增量。
@@ -81,13 +81,13 @@ M0 工程骨架
 
 交付 TaskPlan DAG、TaskExecution、fork/join、任务租约、独立预算、取消传播和资源互斥。先以并发度 1 验证协议，再提高并发度，不改变数据模型。
 
-### M8：Web Research Tools
+### M8：ResearchAgent 与 Web Research Tools
 
-交付 `web_search`、`web_fetch`、URL Policy、DNS/重定向复核、SSRF 防护、下载限制、安全内容提取、Prompt Injection 隔离、来源引用、缓存和网络授权。ResearchAgent 不得早于这一里程碑宣告可用。
+交付可用 ResearchAgent，以及 `web_search`、`web_fetch`、URL Policy、DNS/重定向复核、SSRF 防护、下载限制、安全内容提取、Prompt Injection 隔离、来源引用、缓存和网络授权。M8 验收 ResearchAgent 的完整搜索与来源 TaskResult。
 
-### M9：扩展 Agent 与 Artifact
+### M9：CodeDataAgent、Artifact 与 Research 集成
 
-交付 ResearchAgent、CodeDataAgent、artifact 类型验证、发布和更完整的 GUI 状态展示。
+交付 CodeDataAgent、artifact 类型验证与发布、Research 报告 artifact 和更完整的 GUI 状态展示。ResearchAgent 的核心能力继承 M8，不重复交付。
 
 ## 4. 当前不进入路线图
 
