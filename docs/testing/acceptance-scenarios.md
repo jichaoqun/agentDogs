@@ -13,9 +13,25 @@ And Session 返回可接受下一条消息的状态
 ```
 
 ```gherkin
+Given 一个 Run 被 Worker A 持有
+And Worker A 的租约已经过期
+When Worker B 使用新 lease_token 原子接管
+Then Worker A 的任何迟到提交都返回 LEASE_LOST
+And recovery_attempts 只增加一次
+```
+
+```gherkin
+Given Agent Dogs 后端正在 loopback 端口运行
+When 一个恶意网页在没有 bearer token 或使用未知 Origin 的情况下请求 API
+Then 请求被拒绝
+And 不创建 Session、Run 或 PermissionGrant
+```
+
+```gherkin
 Given 模型调用超时
 When 重试预算耗尽
-Then Run 进入 failed 或明确 partial 终态
+Then Run 进入 completed 或 failed 生命周期终态
+And RunOutcome 为 partial 或 no_result
 And Session 不会永久显示 running
 And 用户消息仍可在重启后读取
 ```
@@ -57,3 +73,13 @@ Then C 只在 JoinPolicy 满足后启动
 And 三个 Task 的消息、预算和工具账本相互隔离
 ```
 
+## M8：Web Research
+
+```gherkin
+Given 搜索结果 URL 最初解析到公网地址
+And 重定向目标解析到私网或 localhost
+When ResearchAgent 请求抓取该页面
+Then Web Tool 拒绝重定向
+And 不向被禁止地址建立连接
+And 返回稳定 URL_POLICY_DENIED
+```

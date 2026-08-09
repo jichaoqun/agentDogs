@@ -2,6 +2,8 @@
 
 当前仓库尚未建立 V2 实现。本文件先定义开发环境应提供的稳定入口，具体命令在 M0 实现时补齐，不能长期保留占位。
 
+桌面宿主已确定为 Electron + React Renderer，后端为随应用发布的 Python Runtime 子进程。生产 Renderer 不连接 Vite dev server；开发模式可以使用 Vite，但仍必须通过安全 preload IPC 和认证后端，不得增加无认证捷径。
+
 ## 目标命令
 
 ```text
@@ -29,4 +31,3 @@ lint        执行格式与静态检查
 - 环境变量说明；
 - Windows 开发注意事项；
 - 常见错误排查。
-

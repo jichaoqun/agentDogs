@@ -38,7 +38,7 @@ Run 表示一次用户输入触发的完整执行过程。一个 Session 可以�
 class RunRecord(BaseModel):
     run_id: str
     session_id: str
-    status: RunStatus
+    status: RunLifecycleStatus
     user_message_id: str
     checkpoint_id: str | None
     cancellation_requested: bool
@@ -88,7 +88,6 @@ SessionStatus = Literal[
     "running",
     "waiting_user",
     "cancelling",
-    "failed",
 ]
 ```
 
@@ -100,7 +99,6 @@ SessionStatus = Literal[
 | `running` | Graph 正在执行 | 否 |
 | `waiting_user` | 等待审批或澄清 | 否，只允许 Resume/Cancel |
 | `cancelling` | 已请求取消，等待执行退出 | 否 |
-| `failed` | 上次 Run 异常结束 | 是，创建新 Run 前先清理 |
 
 ### 3.2 状态转换
 
@@ -114,8 +112,7 @@ stateDiagram-v2
     WaitingUser --> Cancelling: cancel
     Cancelling --> Idle: run_stopped
     Running --> Idle: completed
-    Running --> Failed: fatal_error
-    Failed --> Idle: acknowledge_or_new_run
+    Running --> Idle: failed
 ```
 
 Session Runtime 只允许表中定义的转换。非法转换返回稳定错误码，而不是尝试自动修正。
@@ -421,10 +418,12 @@ class RunLease(BaseModel):
 class RunRecord(BaseModel):
     run_id: str
     session_id: str
-    status: RunStatus
+    status: RunLifecycleStatus
     revision: int
     worker_id: str | None
+    lease_token: str | None
     lease_until: datetime | None
+    heartbeat_at: datetime | None
     cancellation_requested: bool
     recovery_attempts: int
     checkpoint_id: str | None
@@ -437,6 +436,29 @@ class RunRecord(BaseModel):
 3. 租约过期后，原 Worker 的迟到提交一律拒绝。
 4. 新 Worker 只能从最近一次已提交 checkpoint 接管。
 5. 租约不是工具副作用的互斥锁；工具副作用由第四层的 Operation Ledger 保证。
+
+租约操作必须由 Store 提供原子接口：
+
+```python
+class RunLeaseStore(Protocol):
+    def acquire_run_lease(
+        self, run_id: str, expected_revision: int, worker_id: str, ttl_seconds: int
+    ) -> RunLease: ...
+
+    def renew_run_lease(
+        self, run_id: str, expected_revision: int, worker_id: str,
+        lease_token: str, ttl_seconds: int
+    ) -> RunLease: ...
+
+    def take_over_expired_run(
+        self, run_id: str, expected_revision: int, worker_id: str,
+        now: datetime, ttl_seconds: int
+    ) -> RunLease: ...
+```
+
+每次 acquire/takeover 生成新的高熵 `lease_token`。renew 保持 token 不变。节点提交同时匹配 `run_id + revision + worker_id + lease_token + lease_until > now`；任一条件不满足都返回 `LEASE_LOST`，不得尝试覆盖。
+
+`recovery_attempts` 只在 takeover 成功时递增。超过配置的 `max_recovery_attempts` 后，恢复器将 Run 收敛到 `failed` 或 `execution_unknown`，并使 Session 回到 `idle` 或 `waiting_user`，不能永久占用 Session。
 
 ### 13.3 原子存储接口
 

@@ -50,8 +50,9 @@ smoke       外部能力，手动或定时
 
 - 当前里程碑 fast/store/integration 全部通过；
 - schema 改动包含 migration 和升级测试；
+- 本地 API 改动包含认证、Origin、Host、旧 token 和 Renderer 边界测试；
 - 状态机改动包含非法转换测试；
 - 副作用改动包含幂等或 unknown 测试；
+- 网络工具改动包含 SSRF、DNS、重定向、大小限制和 prompt injection 测试；
 - 用户可见改动包含验收场景或 UI 测试；
 - 不允许通过跳过失败测试合并。
-

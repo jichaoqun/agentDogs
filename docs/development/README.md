@@ -23,7 +23,8 @@
 | 05 | [命令沙箱](features/05-command-sandbox.md) | M5 | planned |
 | 06 | [Interrupt 与审批](features/06-approval-flow.md) | M6 | planned |
 | 07 | [Planner 与并行任务](features/07-planner-parallel-tasks.md) | M7 | planned |
-| 08 | [扩展 Agent 与 Artifact](features/08-agents-artifacts.md) | M8 | planned |
+| 08 | [Web Research Tools](features/08-web-research-tools.md) | M8 | planned |
+| 09 | [扩展 Agent 与 Artifact](features/09-agents-artifacts.md) | M9 | planned |
 
 ## 状态定义
 
@@ -31,4 +32,3 @@
 - `in_progress`：存在正在开发的验收项。
 - `blocked`：存在明确外部阻塞，并记录在功能文档中。
 - `completed`：所有当前阶段验收项通过。
-

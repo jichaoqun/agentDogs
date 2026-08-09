@@ -2,7 +2,7 @@
 
 状态：`planned`
 
-目标里程碑：`M8`
+目标里程碑：`M9`
 
 ## 当前范围
 
@@ -24,4 +24,3 @@
 - CodeData 生成物先验证后发布；
 - 同一 ReAct Runtime 支撑三类 Agent；
 - 大型 artifact 不进入 SQLite checkpoint。
-

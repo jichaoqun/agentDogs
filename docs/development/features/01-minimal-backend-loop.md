@@ -16,6 +16,7 @@
 - 同 Session 单 active Run；
 - 原始用户消息与最终 Assistant 消息；
 - SQLite 原子 begin/complete/fail；
+- 每个 Run 创建正式 root TaskExecution；
 - Minimal Graph：initialize、coordinate、agent_step、compose_final、commit_final、handle_error；
 - Minimal Coordinator：delegate GeneralAgent 或 final/fail；
 - GeneralAgent 单次或有界多次模型步骤，但没有工具；
@@ -39,6 +40,8 @@
 - [Control Graph](../../architecture/layer-2-control-graph.md)
 - [Coordinator 与 ReAct Runtime](../../architecture/layer-3-coordination-react-runtime.md)
 - [SQLite Runtime Store](../../architecture/persistence-sqlite-runtime-store.md)
+- [Runtime 状态契约](../../architecture/runtime-status-contract.md)
+- [Desktop API Trust Boundary](../../decisions/ADR-005-desktop-api-trust-boundary.md)
 
 M1 可以裁剪节点，但必须使用正式 `run_id`、revision、checkpoint 和事务协议，不能建立一套未来需要推翻的临时会话模型。
 
@@ -48,19 +51,21 @@ M1 可以裁剪节点，但必须使用正式 `run_id`、revision、checkpoint �
 
 - `sessions`；
 - `runs`；
+- `run_outcomes`；
 - `messages`；
+- `task_executions`；
 - `checkpoints`；
 - `runtime_events`；
 - `outbox_events`。
 
-M1 的 TaskExecution 可以内嵌为单个固定 root task，但模型与 schema 应允许 M7 迁移到独立 task 表。
+M1 必须写入正式 `task_executions` 表。`begin_run` 同事务创建 `task_id='root', attempt=1`；所有模型步骤、checkpoint 和未来工具调用引用该任务。M7 只增加 DAG task，不迁移身份模型。
 
 关键事务：
 
 ```text
-begin_run = Session CAS + Run + user message + event + outbox
-complete_run = final message + Run terminal + Session idle + event + outbox
-fail_run = Run failed + Session failed/idle policy + event + outbox
+begin_run = Session CAS + Run + root task + user message + event + outbox
+complete_run = final message + RunOutcome + Run terminal + Session idle + event + outbox
+fail_run = RunOutcome + Run failed + Session idle + event + outbox
 ```
 
 ## 5. HTTP API
@@ -76,6 +81,8 @@ GET  /api/runs/{run_id}/events
 ```
 
 提交消息需要客户端 `idempotency_key`。同步 HTTP 可以等待短任务完成，但内部必须以 Run 建模；超出请求等待时间时返回 `run_id` 和当前状态，而不是取消后台 Run。
+
+所有 API 包括事件查询都执行 loopback、bearer token、instance_id、Host/Origin 和协议版本检查。开发及测试使用显式测试 token，不提供关闭认证的运行模式。
 
 ## 6. Graph 流程
 
@@ -97,7 +104,7 @@ final
 fail
 ```
 
-设定独立 `max_coordinator_calls`、`max_agent_steps`、`max_model_calls` 和 wall deadline。任何耗尽都必须转入 `partial/failed`，不能停留在 coordinating。
+设定独立 `max_coordinator_calls`、`max_agent_steps`、`max_model_calls` 和 wall deadline。预算耗尽后 Run 生命周期进入 `completed` 或 `failed`，完成质量写入 `RunOutcome(partial/no_result)`；不能把 partial 写入 RunLifecycleStatus，也不能停留在 coordinating。
 
 ## 7. 模型失败
 
@@ -141,4 +148,3 @@ primary call
 - 模型异常不会无限显示 running；
 - 重复请求不产生重复用户或 Assistant 消息；
 - 默认自动化测试不依赖真实模型。
-

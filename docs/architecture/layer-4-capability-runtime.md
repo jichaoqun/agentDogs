@@ -80,7 +80,14 @@ class ToolSpec(BaseModel):
     input_schema: str
     output_schema: str
     risk_level: Literal["read", "network", "execute", "write", "destructive"]
-    side_effect: Literal["none", "idempotent", "compensatable", "non_idempotent"]
+    idempotency_class: Literal[
+        "read_only", "naturally_idempotent", "keyed_idempotent",
+        "compensatable", "non_idempotent"
+    ]
+    reconciliation_strategy: Literal[
+        "repeat_read", "query_by_operation_id", "query_external_state",
+        "compensate", "manual_only"
+    ]
     approval_mode: Literal["never", "policy", "always"]
     allowed_agents: set[str]
     timeout_seconds: int
@@ -89,7 +96,7 @@ class ToolSpec(BaseModel):
     compensation_tool: str | None
 ```
 
-`risk_level` 不能由模型指定。工具注册时验证：非幂等副作用工具必须要求审批或提供清晰的业务约束；声明可补偿时必须注册 compensation tool。
+`risk_level` 和幂等能力不能由模型指定。工具注册时验证：`keyed_idempotent` 必须确认外部系统真正接受幂等键；`compensatable` 必须注册 compensation tool；`non_idempotent` 必须使用 manual-only 或可靠外部状态查询，超时后不得自动重放。
 
 ### 3.2 ToolCall 与规范化
 
@@ -129,9 +136,64 @@ class ToolResult(BaseModel):
 
 大型输出不得直接进入 `summary`。原始 stdout、网页正文和二进制数据进入受限 blob/artifact store，结果中只保存引用、摘要、大小和内容 hash。
 
-## 4. Policy Engine
+## 4. Principal、Workspace 与授权
 
-### 4.1 一个权威规则源，两个检查职责
+### 4.1 Principal
+
+```python
+class Principal(BaseModel):
+    principal_id: str
+    kind: Literal["local_user", "desktop_gui", "cli", "service"]
+    parent_principal_id: str | None
+    os_user_fingerprint: str | None
+    status: Literal["active", "disabled"]
+```
+
+Agent 不是 Principal。Agent 描述“用什么策略工作”，Principal 表示“谁授权了这次操作”。桌面 GUI 和 CLI 有独立认证上下文，并映射到稳定的本地用户 principal；不能因为二者运行在同一台机器就隐式共享全部授权。
+
+### 4.2 WorkspaceGrant
+
+```python
+class Workspace(BaseModel):
+    workspace_id: str
+    owner_principal_id: str
+    canonical_root: str
+    root_identity: str
+    status: Literal["active", "revoked"]
+```
+
+`root_identity` 包含操作系统规范文件身份，用于防止路径大小写、junction、挂载变化或目录替换造成授权漂移。Workspace 默认只代表一个授权范围，不自动授予读写能力。
+
+### 4.3 PermissionGrant
+
+```python
+class PermissionGrant(BaseModel):
+    grant_id: str
+    principal_id: str
+    workspace_id: str | None
+    capability: Literal[
+        "filesystem.read", "filesystem.create", "filesystem.modify",
+        "filesystem.delete", "process.execute", "network.connect",
+        "dependency.install", "system.integrate", "external.publish"
+    ]
+    effect: Literal["allow", "deny"]
+    scope: dict
+    lifetime: Literal["once", "task", "session", "workspace"]
+    session_id: str | None
+    task_id: str | None
+    policy_version: str
+    revision: int
+    expires_at: datetime | None
+    revoked_at: datetime | None
+```
+
+有效权限由 Agent 工具集合、Principal grants、Workspace scope、系统 Policy 和 OS sandbox 取交集。显式 deny 优先于 allow；过期、撤销或版本不匹配的 grant 不参与决策。
+
+`PermissionGrant` 是一段时间内可复用的能力授权；下面的 `ApprovalGrant` 是对某一个不可变 operation 的一次性决定。批准 operation 可以在 Policy 允许时生成限定范围的 PermissionGrant，但二者必须分别存储和审计。
+
+## 5. Policy Engine
+
+### 5.1 一个权威规则源，两个检查职责
 
 Policy 规则只在 Policy Engine 中定义，Graph 和 Tool Runtime 不得各自维护允许列表或审批规则的不同副本。
 
@@ -163,7 +225,7 @@ class PolicyDecision(BaseModel):
 
 Tool Runtime 在真正执行前重新验证 decision 与当前操作完全匹配。这是防御式重复校验，不是第二套策略。
 
-### 4.2 审批票据
+### 5.2 审批票据
 
 ```python
 class ApprovalGrant(BaseModel):
@@ -182,9 +244,9 @@ class ApprovalGrant(BaseModel):
 
 安全展示数据由工具提供专用 renderer，只展示必要参数，敏感字段脱敏。不得把原始环境变量、密钥或完整文件内容发送给审批界面。
 
-## 5. Operation Ledger
+## 6. Operation Ledger
 
-### 5.1 状态模型
+### 6.1 状态模型
 
 ```python
 class OperationRecord(BaseModel):
@@ -200,14 +262,17 @@ class OperationRecord(BaseModel):
     attempt: int
     executor_id: str | None
     execution_lease_until: datetime | None
-    external_idempotency_key: str
+    idempotency_class: str
+    reconciliation_strategy: str
+    external_idempotency_key: str | None
+    compensation_tool: str | None
     result_reference: str | None
     error_code: str | None
 ```
 
 状态转换使用 CAS。相同 `operation_id` 但参数 hash 不同必须返回 `OPERATION_CONFLICT`。
 
-### 5.2 执行流程
+### 6.2 执行流程
 
 ```text
 normalize arguments
@@ -215,7 +280,7 @@ normalize arguments
   -> ledger.prepare
   -> approval if required
   -> acquire execution lease
-  -> handler.execute(operation_id as idempotency key)
+  -> handler.execute(external key only when supported)
   -> ledger.complete
   -> return stable ToolResult
 ```
@@ -228,7 +293,7 @@ normalize arguments
 - `running` 且租约过期：进入 reconcile；
 - `unknown`：只允许 reconcile、人工处理或补偿，不自动重放非幂等操作。
 
-### 5.3 对账协议
+### 6.3 对账协议
 
 ```python
 class ReconciliationResult(BaseModel):
@@ -240,16 +305,19 @@ class ReconciliationResult(BaseModel):
 
 Handler 可以实现 `reconcile(operation)`。只有确认 `not_executed` 且工具策略允许时才可执行；确认 succeeded 时补记结果；仍 unknown 时 Graph 进入 `execution_unknown`。
 
-### 5.4 幂等等级
+### 6.4 幂等等级
 
-- `none`：纯读取，可安全重试，但结果可能随时间变化；
-- `idempotent`：相同 operation key 重复执行效果相同；
-- `compensatable`：可能重复产生副作用，但存在可审计补偿操作；
-- `non_idempotent`：超时或崩溃后禁止自动重放。
+- `read_only`：不产生副作用，可重新读取，但结果可能随时间变化；
+- `naturally_idempotent`：重复执行在目标系统中天然得到同一状态；
+- `keyed_idempotent`：外部系统明确接受并保证 idempotency key；
+- `compensatable`：可能产生副作用，但存在可审计补偿操作；
+- `non_idempotent`：外部不保证幂等，超时或崩溃后禁止自动重放。
+
+系统内部 `operation_id` 对所有类别都存在，但它本身不能使外部调用幂等。只有 `keyed_idempotent` 才要求 `external_idempotency_key` 非空。
 
 “只读”不代表可以无限重试；仍受成本、速率、时效和预算约束。
 
-## 6. Tool Runtime
+## 7. Tool Runtime
 
 ```python
 class ToolRuntime(Protocol):
@@ -273,7 +341,7 @@ class ToolRuntime(Protocol):
 
 即使 Graph 已做 Policy 路由，直接调用 `execute` 也必须验证 Operation、PolicyDecision 和 ApprovalGrant。
 
-## 7. Sandbox 与代码执行
+## 8. Sandbox 与代码执行
 
 代码执行工具必须定义：
 
@@ -289,9 +357,9 @@ class ToolRuntime(Protocol):
 
 依赖安装不得复用普通 execute_code；它是独立高风险工具，参数包含包、版本、来源和目标环境，并记录 lockfile 或环境快照。
 
-## 8. Artifact Runtime
+## 9. Artifact Runtime
 
-### 8.1 生命周期
+### 9.1 生命周期
 
 ```text
 staged -> validated -> approved(optional) -> published
@@ -306,17 +374,17 @@ runtime/artifacts/<run_id>/<artifact_id>/
 
 ArtifactReference 至少包含 artifact_id、content hash、media type、size、producer operation、validation status 和 storage URI。
 
-### 8.2 发布
+### 9.2 发布
 
 发布到 workspace、下载区或外部服务必须使用独立 `publish_artifact` 工具，并进入 Operation Ledger。发布目标使用规范路径；覆盖已有文件、跨根目录写入或外部发布按 Policy 决定是否审批。
 
 验证不得只检查文件存在，还应按类型检查可打开性、结构和渲染结果。验证失败的 artifact 不得标记 published。
 
-## 9. Memory、Knowledge 与 Skills（未来扩展）
+## 10. Memory、Knowledge 与 Skills（未来扩展）
 
 本章定义未来兼容边界。当前阶段不实现长期 Memory 自动写入、Knowledge 摄取或向量检索；SQLite Runtime Store 只保存原始对话与系统运行事实。未来实现不得与 Runtime Store 的权威事实表混用。
 
-### 9.1 统一引用模型
+### 10.1 统一引用模型
 
 ```python
 class InformationReference(BaseModel):
@@ -335,7 +403,7 @@ class InformationReference(BaseModel):
 
 所有信息能力必须经过 principal 和租户过滤，再返回最小必要 excerpt。结果进入 Context 时保留来源和检索时间。
 
-### 9.2 Memory
+### 10.2 Memory
 
 - 只从已提交的会话事实生成；
 - 迟到、取消和 unknown 操作结果不得写入长期 Memory；
@@ -343,14 +411,14 @@ class InformationReference(BaseModel):
 - 用户可查看、删除或禁用长期 Memory；
 - Memory 是可能过期的辅助信息，不能覆盖当前明确输入。
 
-### 9.3 Knowledge
+### 10.3 Knowledge
 
 - 文档摄取记录来源、版本、权限和分块策略；
 - 检索结果区分原文事实和生成摘要；
 - 权限变化后缓存立即失效或按短 TTL 收敛；
 - 没有来源的生成内容不得伪装成 Knowledge 事实。
 
-### 9.4 Skills
+### 10.4 Skills
 
 Skill 包含版本化说明、适用条件、资源引用和建议工具，不包含不可审计的运行时对象。加载 Skill 后的有效工具集合为：
 
@@ -360,7 +428,7 @@ agent.allowed_tools ∩ principal.grants ∩ policy.allowed_tools
 
 Skill 声明的工具不参与并集，因此不能扩大权限。Skill 更新只影响新 Task 或明确重新加载后的步骤，并记录版本。
 
-## 10. 安全与数据治理
+## 11. 安全与数据治理
 
 - Tool 日志、事件和模型上下文统一经过字段级脱敏；
 - secret 只通过受控句柄注入，不进入 GraphState、ToolResult 或 artifact metadata；
@@ -369,7 +437,7 @@ Skill 声明的工具不参与并集，因此不能扩大权限。Skill 更新�
 - 删除 Session 时按保留策略清理 checkpoint、blob、artifact 和 Memory 引用；
 - 审计事件追加写，业务用户可见事件与安全审计事件分开存储。
 
-## 11. 可观测性
+## 12. 可观测性
 
 记录：
 
@@ -382,7 +450,7 @@ Skill 声明的工具不参与并集，因此不能扩大权限。Skill 更新�
 
 指标至少包括工具成功率、unknown 数量、审批等待时间、对账耗时、重复 operation 命中率、输出截断率和 sandbox 资源使用。
 
-## 12. 测试与验收
+## 13. 测试与验收
 
 ### Contract 测试
 

@@ -99,11 +99,61 @@ CREATE TABLE runtime_settings (
 
 `runtime_settings` 只保存非敏感配置，例如默认模型别名、并发度、UI 偏好和最近 workspace。API key、refresh token 和系统凭据必须进入操作系统凭据存储，不得明文写入 SQLite。
 
-### 5.2 Session、Run 与消息
+### 5.2 Principal、Workspace 与权限
+
+```sql
+CREATE TABLE principals (
+    principal_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    os_user_fingerprint TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE workspaces (
+    workspace_id TEXT PRIMARY KEY,
+    owner_principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    canonical_root TEXT NOT NULL,
+    root_identity TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(owner_principal_id, root_identity)
+);
+
+CREATE TABLE permission_grants (
+    grant_id TEXT PRIMARY KEY,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    workspace_id TEXT REFERENCES workspaces(workspace_id),
+    capability TEXT NOT NULL,
+    effect TEXT NOT NULL,
+    scope_json TEXT NOT NULL,
+    lifetime TEXT NOT NULL,
+    session_id TEXT,
+    task_id TEXT,
+    policy_version TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    expires_at TEXT,
+    revoked_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
+`Principal` 是权限主体，不等同于 Agent。桌面 GUI、CLI 和未来远程入口分别建立认证上下文，但映射到稳定的本地用户 principal。`root_identity` 使用规范路径和操作系统文件身份生成，不能只依赖大小写敏感的路径字符串。
+
+`PermissionGrant` 表示某 principal 在 scope 内拥有某 capability；`ApprovalGrant` 只表示对单个不可变 operation 的审批。两者不能混用。Grant 撤销采用 `revoked_at + revision`，Policy cache key 必须包含 grant revision。
+
+### 5.3 Session、Run 与消息
 
 ```sql
 CREATE TABLE sessions (
     session_id TEXT PRIMARY KEY,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
+    workspace_id TEXT REFERENCES workspaces(workspace_id),
     title TEXT NOT NULL,
     status TEXT NOT NULL,
     active_run_id TEXT,
@@ -120,7 +170,10 @@ CREATE TABLE runs (
     status TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1,
     worker_id TEXT,
+    lease_token TEXT,
     lease_until TEXT,
+    heartbeat_at TEXT,
+    recovery_attempts INTEGER NOT NULL DEFAULT 0,
     cancellation_requested INTEGER NOT NULL DEFAULT 0,
     checkpoint_id TEXT,
     error_code TEXT,
@@ -128,6 +181,17 @@ CREATE TABLE runs (
     started_at TEXT,
     finished_at TEXT,
     UNIQUE(session_id, idempotency_key)
+);
+
+CREATE TABLE run_outcomes (
+    run_id TEXT PRIMARY KEY REFERENCES runs(run_id),
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    completed_task_ids_json TEXT NOT NULL DEFAULT '[]',
+    incomplete_task_ids_json TEXT NOT NULL DEFAULT '[]',
+    blocking_reasons_json TEXT NOT NULL DEFAULT '[]',
+    result_references_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE messages (
@@ -150,7 +214,7 @@ WHERE message_kind = 'final_assistant';
 
 消息保存原始用户输入和最终 Assistant 输出。领域 Agent 的内部工作消息不复制到主对话表，只保存摘要或独立引用。
 
-### 5.3 计划和并行任务
+### 5.4 计划和并行任务
 
 ```sql
 CREATE TABLE plans (
@@ -182,15 +246,18 @@ CREATE TABLE task_executions (
 );
 ```
 
+从 M1 开始，每个 Run 在 `begin_run` 事务中创建正式 TaskExecution：`task_id='root', attempt=1`。没有 Planner 时所有模型步骤、checkpoint 和工具调用都归属 root task。M7 只增加 DAG 中的任务数量，不改变基本表、外键和身份语义。
+
 不同 TaskExecution 可由不同 Worker 运行，但各自使用 `revision` CAS；修改父 DAG readiness 或 join 状态时同时更新 Run revision。
 
-### 5.4 Checkpoint 与 Interrupt
+### 5.5 Checkpoint 与 Interrupt
 
 ```sql
 CREATE TABLE checkpoints (
     checkpoint_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES runs(run_id),
     task_id TEXT,
+    task_attempt INTEGER,
     run_revision INTEGER NOT NULL,
     task_revision INTEGER,
     state_json TEXT NOT NULL,
@@ -202,6 +269,7 @@ CREATE TABLE interrupts (
     interrupt_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES runs(run_id),
     task_id TEXT,
+    task_attempt INTEGER,
     type TEXT NOT NULL,
     status TEXT NOT NULL,
     payload_schema_version INTEGER NOT NULL,
@@ -217,13 +285,14 @@ CREATE TABLE interrupts (
 
 Checkpoint 只保存恢复所需的小型状态与引用，不保存 SDK Client、进程句柄、完整网页、完整 stdout 或二进制文件。
 
-### 5.5 工具账本与审批
+### 5.6 工具账本与审批
 
 ```sql
 CREATE TABLE tool_operations (
     operation_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES runs(run_id),
     task_id TEXT NOT NULL,
+    task_attempt INTEGER NOT NULL,
     tool_name TEXT NOT NULL,
     tool_version TEXT NOT NULL,
     arguments_json TEXT NOT NULL,
@@ -232,17 +301,22 @@ CREATE TABLE tool_operations (
     attempt INTEGER NOT NULL DEFAULT 0,
     executor_id TEXT,
     execution_lease_until TEXT,
-    external_idempotency_key TEXT NOT NULL,
+    idempotency_class TEXT NOT NULL,
+    reconciliation_strategy TEXT NOT NULL,
+    external_idempotency_key TEXT,
+    compensation_tool TEXT,
     result_reference TEXT,
     error_code TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(run_id, task_id, task_attempt)
+        REFERENCES task_executions(run_id, task_id, attempt)
 );
 
 CREATE TABLE approval_grants (
     approval_id TEXT PRIMARY KEY,
     operation_id TEXT NOT NULL REFERENCES tool_operations(operation_id),
-    principal_id TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(principal_id),
     arguments_hash TEXT NOT NULL,
     policy_version TEXT NOT NULL,
     decision TEXT NOT NULL,
@@ -252,15 +326,16 @@ CREATE TABLE approval_grants (
 );
 ```
 
-Operation Ledger 是 Runtime Store 的一部分，不是日志。它用于判断工具是否可以执行、重放、对账或补偿，因此必须和 Graph checkpoint 一起参与事务设计。
+Operation Ledger 是 Runtime Store 的一部分，不是日志。`operation_id` 始终存在，表示系统内部身份；`external_idempotency_key` 只有外部系统真正支持时才填写。`idempotency_class` 和 `reconciliation_strategy` 决定超时、崩溃和 unknown 后能否重试。
 
-### 5.6 Artifact、事件与 Outbox
+### 5.7 Artifact、事件与 Outbox
 
 ```sql
 CREATE TABLE artifacts (
     artifact_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES runs(run_id),
     task_id TEXT,
+    task_attempt INTEGER,
     producer_operation_id TEXT,
     storage_uri TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -306,6 +381,7 @@ CREATE TABLE outbox_events (
 
 - CAS 更新 Session 为 running；
 - 插入 Run；
+- 插入正式 root TaskExecution（`task_id='root', attempt=1`）；
 - 插入原始用户消息；
 - 插入 RunStarted event 与 outbox。
 
@@ -326,12 +402,63 @@ CREATE TABLE outbox_events (
 ### complete_run
 
 - 插入唯一最终 Assistant 消息；
+- 插入唯一 RunOutcome；
 - 更新 Run 为终态；
 - 清除 Session.active_run_id；
 - 更新 Session 状态和 version；
 - 插入 RunCompleted event 与 outbox。
 
 事务使用 `BEGIN IMMEDIATE` 尽早发现 Writer 竞争。事务函数不调用 LLM、不运行工具、不读写大型 artifact，也不等待用户。
+
+### Run Lease 原子操作
+
+获取空闲租约：
+
+```sql
+UPDATE runs
+SET worker_id = :worker_id,
+    lease_token = :new_lease_token,
+    lease_until = :lease_until,
+    heartbeat_at = :now,
+    revision = revision + 1
+WHERE run_id = :run_id
+  AND revision = :expected_revision
+  AND (lease_token IS NULL OR lease_until <= :now)
+  AND status NOT IN ('completed', 'cancelled', 'failed');
+```
+
+续约：
+
+```sql
+UPDATE runs
+SET lease_until = :lease_until,
+    heartbeat_at = :now,
+    revision = revision + 1
+WHERE run_id = :run_id
+  AND revision = :expected_revision
+  AND worker_id = :worker_id
+  AND lease_token = :lease_token
+  AND lease_until > :now;
+```
+
+接管过期 Run：
+
+```sql
+UPDATE runs
+SET worker_id = :new_worker_id,
+    lease_token = :new_lease_token,
+    lease_until = :lease_until,
+    heartbeat_at = :now,
+    recovery_attempts = recovery_attempts + 1,
+    revision = revision + 1
+WHERE run_id = :run_id
+  AND revision = :expected_revision
+  AND lease_until <= :now
+  AND recovery_attempts < :max_recovery_attempts
+  AND status NOT IN ('completed', 'cancelled', 'failed');
+```
+
+三种操作都要求更新行数恰好为 1，否则返回 `LEASE_CONFLICT`。每次 acquire/takeover 使用新的不可预测 token；节点提交重复同样的 worker/token/revision 条件。
 
 ## 7. Repository 边界
 
@@ -392,6 +519,8 @@ Session 默认软删除，后台清理任务按外键顺序删除关联 checkpoi
 
 ```sql
 CREATE INDEX idx_runs_session_created ON runs(session_id, created_at);
+CREATE INDEX idx_grants_principal_capability ON permission_grants(principal_id, capability, revoked_at, expires_at);
+CREATE INDEX idx_workspaces_owner ON workspaces(owner_principal_id, status);
 CREATE INDEX idx_messages_session_created ON messages(session_id, created_at);
 CREATE INDEX idx_tasks_run_status ON task_executions(run_id, status);
 CREATE INDEX idx_operations_run_state ON tool_operations(run_id, state);

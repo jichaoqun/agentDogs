@@ -31,11 +31,13 @@
 
 ## 3. 架构约束
 
-GUI 不持有 Agent、Graph 或 SQLite connection。所有状态来自 API；本地 UI store 只是缓存，刷新后可以从后端重建。
+桌面宿主采用 [ADR-006](../../decisions/ADR-006-electron-host-process-model.md) 定义的 Electron Main + React Renderer + Python 子进程。GUI 不持有 Agent、Graph 或 SQLite connection。所有状态来自 Main 代理的 API；本地 UI store 只是缓存，刷新后可以从后端重建。
+
+Renderer 使用 `contextIsolation=true`、`nodeIntegration=false` 和固定 preload API。后端 bearer token 只存在于 Electron Main 内存。
 
 ## 4. API 与事件
 
-复用 M1 API。事件传输首选 Server-Sent Events；如果第一阶段采用轮询，事件 cursor 协议必须与未来 SSE 兼容：
+复用 M1 API。Electron Main 持有 Server-Sent Events 连接并通过类型化 IPC 向 Renderer 转发；Renderer 不直接连接 loopback API。事件 cursor：
 
 ```text
 GET /api/runs/{run_id}/events?after_sequence=42
@@ -55,11 +57,13 @@ UI 使用稳定状态码和错误码，不解析后端日志文本。
 ## 6. 实现步骤
 
 1. 建立 API client 和类型定义。
-2. 实现会话列表与选择。
-3. 实现消息加载、输入和幂等提交。
-4. 实现 Run 状态与 Cancel。
-5. 实现事件 cursor、重连和页面恢复。
-6. 补充桌面与窄窗口视觉测试。
+2. 实现 Electron Main 启动、handshake、退出和有界崩溃重启。
+3. 实现安全 preload IPC 和 Main API/SSE proxy。
+4. 实现会话列表与选择。
+5. 实现消息加载、输入和幂等提交。
+6. 实现 RunLifecycleStatus、RunOutcome 与 Cancel 展示。
+7. 实现事件 cursor、重连和页面恢复。
+8. 补充桌面与窄窗口视觉测试。
 
 ## 7. 测试
 
@@ -78,4 +82,3 @@ UI 使用稳定状态码和错误码，不解析后端日志文本。
 - 所有 Run 状态都可解释且不会永久 loading；
 - 页面刷新不丢失对话；
 - 后端重启后 UI 可以重新连接和恢复。
-

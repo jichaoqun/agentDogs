@@ -482,19 +482,22 @@ Join 规则必须由计划定义：
 父 Run 和子任务使用不同状态，不把多个子任务状态压成一个全局 `running_agent`：
 
 ```python
-ParentRunStatus = Literal[
+RunLifecycleStatus = Literal[
     "initializing", "coordinating", "planning", "running_tasks",
     "waiting_user", "joining", "compressing", "composing_final",
-    "committing_final", "execution_unknown", "completed", "cancelled", "failed",
+    "committing_final", "cancelling", "execution_unknown",
+    "completed", "cancelled", "failed",
 ]
 
 TaskExecutionStatus = Literal[
-    "pending", "ready", "running_agent", "tool_preparing",
+    "pending", "ready", "running", "tool_preparing",
     "waiting_approval", "waiting_clarification", "tool_executing",
     "tool_reconciling", "joining", "completed", "failed",
     "blocked", "cancelled", "execution_unknown",
 ]
 ```
+
+枚举的权威语义见 [Runtime 状态与结果契约](runtime-status-contract.md)。下表中的 `running_agent` 表示 Graph 节点名称；持久 TaskExecutionStatus 写入 `running`。
 
 `waiting_tool/executing` 不再是复合状态。关键转换如下：
 

@@ -11,7 +11,8 @@ M0 工程骨架
  -> M3/M4 文件能力
  -> M5/M6 安全执行与审批
  -> M7 并行编排
- -> M8 扩展 Agent 与 Artifact
+ -> M8 Web Research Tools
+ -> M9 扩展 Agent 与 Artifact
 ```
 
 不先实现四层的全部抽象再集成。每个里程碑必须产生可以运行、测试和观察的系统增量。
@@ -33,7 +34,7 @@ M0 工程骨架
 
 ### M0：工程骨架
 
-交付模块目录、配置加载、领域模型、SQLite migration、日志、测试框架和开发启动命令。不接入真实 Agent 工作流。
+交付模块目录、配置加载、统一状态模型、Principal/Workspace/PermissionGrant、SQLite migration、Desktop API 认证基础、Electron/Python handshake contract、日志、测试框架和开发启动命令。不接入真实 Agent 工作流。
 
 完成后可以创建数据库、执行 migration、启动 API health endpoint 并运行测试。
 
@@ -44,19 +45,21 @@ M0 工程骨架
 - Session 创建与查询；
 - 原始用户消息提交；
 - SQLite 原子 `begin_run`；
+- 正式 root TaskExecution；
 - Minimal Control Graph；
 - 简单 Coordinator；
 - 单个 GeneralAgent；
 - 一次真实模型结构化调用；
 - 最终 Assistant 消息原子提交；
 - RuntimeEvent；
-- REST API 和 CLI/集成测试入口。
+- 经过 loopback bearer、instance 和协议版本认证的 REST API；
+- CLI/集成测试入口。
 
 不包含 Planner、并行任务、文件工具、命令执行、审批和正式 GUI。
 
 ### M2：最小桌面交互
 
-交付会话列表、消息列表、输入框、Run 状态、Cancel、错误展示和事件更新。UI 只验证真实交互协议，不建设复杂工作台。
+交付 Electron Main 管理 Python 子进程、安全 preload IPC、API/SSE 代理，以及会话列表、消息列表、输入框、Run 状态、Outcome、Cancel、错误展示和事件更新。UI 只验证真实交互协议，不建设复杂工作台。
 
 ### M3：只读文件能力
 
@@ -78,7 +81,11 @@ M0 工程骨架
 
 交付 TaskPlan DAG、TaskExecution、fork/join、任务租约、独立预算、取消传播和资源互斥。先以并发度 1 验证协议，再提高并发度，不改变数据模型。
 
-### M8：扩展 Agent 与 Artifact
+### M8：Web Research Tools
+
+交付 `web_search`、`web_fetch`、URL Policy、DNS/重定向复核、SSRF 防护、下载限制、安全内容提取、Prompt Injection 隔离、来源引用、缓存和网络授权。ResearchAgent 不得早于这一里程碑宣告可用。
+
+### M9：扩展 Agent 与 Artifact
 
 交付 ResearchAgent、CodeDataAgent、artifact 类型验证、发布和更完整的 GUI 状态展示。
 
@@ -90,4 +97,3 @@ M0 工程骨架
 - 跨机器 Durable Execution；
 - 多 Agent 自由互发消息；
 - 全自动高风险操作。
-

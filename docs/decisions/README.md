@@ -8,4 +8,6 @@ ADR 记录已经接受的重要技术决策及其后果。状态使用 `proposed
 | [ADR-002](ADR-002-runtime-store-vs-memory.md) | Runtime Store 与 Memory/Knowledge 分离 | accepted |
 | [ADR-003](ADR-003-native-command-sandbox.md) | 桌面端使用 OS 原生命令沙箱 | accepted |
 | [ADR-004](ADR-004-operation-ledger.md) | 副作用工具使用 Operation Ledger | accepted |
+| [ADR-005](ADR-005-desktop-api-trust-boundary.md) | 本地 API 不是隐式可信边界 | accepted |
+| [ADR-006](ADR-006-electron-host-process-model.md) | Electron 管理 Python 后端子进程 | accepted |
 

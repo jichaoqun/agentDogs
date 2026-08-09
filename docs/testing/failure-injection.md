@@ -17,6 +17,8 @@ after_tool_side_effect_before_ledger_complete
 after_interrupt_commit_before_response
 after_final_message_before_commit
 after_complete_run_commit_before_publish
+after_run_lease_takeover_before_resume
+after_desktop_backend_ready_before_handshake
 ```
 
 Failpoint 可以抛出异常或立即终止测试 Worker。生产配置不能动态启用。
@@ -34,4 +36,3 @@ Failpoint 可以抛出异常或立即终止测试 Worker。生产配置不能动
 ## 4. 执行方式
 
 每个事务和副作用边界分别测试 failpoint 前、后两种情况。恢复器重新打开同一数据库并驱动 Run，断言数据库、事件和外部 fake operation 的调用次数。
-

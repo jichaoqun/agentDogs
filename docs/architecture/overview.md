@@ -37,6 +37,8 @@
 横向持久化能力单独定义在：
 
 - [SQLite Runtime Store 设计](persistence-sqlite-runtime-store.md)
+- [Runtime 状态与结果契约](runtime-status-contract.md)
+- [Web Tool 与网络安全契约](web-tool-security.md)
 
 四层依赖方向必须保持单向：
 
@@ -186,7 +188,6 @@ SessionStatus = Literal[
     "running",
     "waiting_user",
     "cancelling",
-    "failed",
 ]
 ```
 
@@ -274,20 +275,18 @@ Graph 不负责详细业务分类。它只识别标准化 Command、Action、Pol
 ### 5.4 Run 状态
 
 ```python
-RunStatus = Literal[
+RunLifecycleStatus = Literal[
     "initializing",
     "coordinating",
-    "running_tasks",
-    "tool_preparing",
-    "tool_executing",
-    "tool_reconciling",
-    "execution_unknown",
-    "waiting_approval",
-    "waiting_clarification",
     "planning",
+    "running_tasks",
+    "waiting_user",
+    "joining",
     "compressing",
     "composing_final",
     "committing_final",
+    "cancelling",
+    "execution_unknown",
     "completed",
     "cancelled",
     "failed",
@@ -300,7 +299,7 @@ RunStatus = Literal[
 class AgentState(TypedDict):
     session_id: str
     run_id: str
-    status: RunStatus
+    status: RunLifecycleStatus
 
     user_input: str
     conversation_messages: list[BaseMessage]
@@ -722,17 +721,17 @@ Tool 是预定义的原子能力。Tool 不负责规划完整任务。
 ```python
 class ToolSpec(BaseModel):
     name: str
+    version: str
     description: str
-    input_model: type[BaseModel]
-    output_model: type[BaseModel]
-    risk_level: Literal[
-        "read",
-        "network",
-        "execute",
-        "write",
-        "destructive",
+    input_schema: str
+    output_schema: str
+    risk_level: Literal["read", "network", "execute", "write", "destructive"]
+    idempotency_class: Literal[
+        "read_only", "naturally_idempotent", "keyed_idempotent",
+        "compensatable", "non_idempotent"
     ]
-    requires_approval: bool
+    reconciliation_strategy: str
+    approval_mode: Literal["never", "policy", "always"]
     allowed_agents: set[str]
     timeout_seconds: int
 ```
@@ -741,23 +740,27 @@ class ToolSpec(BaseModel):
 
 ```python
 class ToolCall(BaseModel):
-    id: str
-    name: str
-    arguments: dict
-    requested_by: str
+    operation_id: str
     run_id: str
+    task_id: str
+    task_attempt: int
+    requested_by: str
+    tool_name: str
+    tool_version: str
+    arguments: dict
+    arguments_hash: str
 ```
 
 ### 8.4 ToolResult
 
 ```python
 class ToolResult(BaseModel):
-    call_id: str
+    operation_id: str
     tool_name: str
-    ok: bool
-    content: str
-    data: dict
-    artifacts: list[Artifact]
+    status: Literal["succeeded", "failed", "denied", "cancelled", "timed_out", "unknown"]
+    summary: str
+    data_reference: str | None
+    artifacts: list[ArtifactReference]
     error: ToolError | None
     started_at: datetime
     completed_at: datetime
