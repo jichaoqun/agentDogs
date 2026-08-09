@@ -34,6 +34,10 @@
 3. [第三层：Coordinator 与 ReAct Runtime 设计](layer-3-coordination-react-runtime.md)
 4. [第四层：Domain Agents、Tools 与信息能力设计](layer-4-capability-runtime.md)
 
+横向持久化能力单独定义在：
+
+- [SQLite Runtime Store 设计](persistence-sqlite-runtime-store.md)
+
 四层依赖方向必须保持单向：
 
 ```text
@@ -44,6 +48,30 @@ Session Runtime
 ```
 
 Memory、Knowledge、Skills、Context、Policy、Persistence 和 Observability 是横向能力，但必须通过明确接口接入，不能反向控制上层生命周期。
+
+### 1.2 V2 强制架构决策
+
+本文档后续代码片段用于解释总体思想；详细文档中的“修订”与协议定义是实现规范。为避免早期示例产生歧义，V2 统一采用以下决策：
+
+1. **跨进程一致性由存储保证**：`asyncio.Lock` 只做进程内优化；Run 使用数据库唯一约束、revision CAS 和 Worker lease。
+2. **业务状态原子提交**：Session、Run、Message、Checkpoint 和 Outbox Event 通过 SessionStore 事务接口一起提交，业务层不得拼接细粒度写操作。
+3. **Run 内支持受控并行**：Planner 产生任务 DAG，Scheduler 可同时启动多个 ready task。每个 TaskExecution 隔离 Agent 上下文、pending ToolCall、预算和 checkpoint；父 Run 负责 fork/join、并发上限、取消传播和结果收敛。实现可以先使用并发度 1 验证协议，再启用更高并发度，但总体模型不得退化为单 active task。
+4. **工具调用使用稳定账本**：每个工具调用具有稳定 `operation_id`、规范参数 hash 和 Operation Ledger 记录。崩溃恢复不能仅凭 checkpoint 自动重放副作用。
+5. **未知副作用显式化**：无法判断写操作是否成功时进入 `execution_unknown`，只能对账、补偿或人工处理，不得当作普通失败自动重试。
+6. **Policy 规则只有一个权威来源**：Graph 获取 PolicyDecision 后负责进入执行、拒绝或等待审批；Tool Runtime 在执行前使用同一 Policy Engine/同一决策版本再次校验，确保任何调用路径都不能绕过权限。这里的“最终边界”指执行前最后一道强制检查，不表示 Tool Runtime 自己维护另一套策略。
+7. **审批绑定不可变操作**：ApprovalGrant 绑定 operation、参数 hash、principal 和 policy version，参数变化后必须重新审批。
+8. **最终提交分两步**：先无副作用地生成候选回复，再以原子事务提交唯一最终消息和 Run 完成状态。
+9. **Checkpoint 只保存恢复所需状态**：完整事件、网页、stdout、大型 ToolResult 和二进制 artifact 使用追加式存储或引用，不复制进每个 checkpoint。
+10. **恢复按状态定义**：所有非终态都有明确接管规则；`tool_executing` 恢复时必须查询 Operation Ledger，`cancelling` 必须从持久取消意图继续收敛。
+
+四层分别拥有以下最终责任：
+
+| 层 | 最终责任 |
+|---|---|
+| Session Runtime | Run 唯一性、事务提交、租约、Resume/Cancel API |
+| Control Graph | 合法状态转换、checkpoint、预算和确定性路由 |
+| Coordinator / ReAct Runtime | 语义决策、DAG 并行调度、fork/join、单步结构化动作、上下文 |
+| Capability Runtime | 工具强制授权、幂等账本、执行/对账、artifact 与信息权限 |
 
 ## 2. 设计原则
 
@@ -249,13 +277,17 @@ Graph 不负责详细业务分类。它只识别标准化 Command、Action、Pol
 RunStatus = Literal[
     "initializing",
     "coordinating",
-    "running_agent",
-    "waiting_tool",
+    "running_tasks",
+    "tool_preparing",
+    "tool_executing",
+    "tool_reconciling",
+    "execution_unknown",
     "waiting_approval",
     "waiting_clarification",
     "planning",
     "compressing",
-    "finalizing",
+    "composing_final",
+    "committing_final",
     "completed",
     "cancelled",
     "failed",
@@ -277,12 +309,10 @@ class AgentState(TypedDict):
     plan: TaskPlan | None
     completed_tasks: list[TaskResult]
 
-    active_agent: str | None
-    active_task: AgentTask | None
-    agent_messages: list[BaseMessage]
-
-    pending_tool_calls: list[ToolCall]
-    tool_results: list[ToolResult]
+    task_executions: dict[str, TaskExecution]
+    ready_task_ids: list[str]
+    running_task_ids: set[str]
+    completed_task_ids: set[str]
 
     pending_approval: ApprovalRequest | None
     pending_clarification: ClarificationRequest | None
@@ -789,7 +819,11 @@ plan_confirmation
 
 拒绝审批时不应直接使整个任务失败，而应生成一个结构化的拒绝 ToolResult 返回原 Agent，让 Agent 决定替代方案。
 
-## 10. Context、Memory、Knowledge与Skills
+## 10. Context 与未来信息能力
+
+V2 当前实现 Context Manager 和 SQLite Runtime Store，不实现长期 Memory 自动提取、Knowledge Base 摄取或向量检索。以下 Memory、Knowledge 与 Skills 内容定义未来扩展边界，不属于当前 Runtime Store schema，也不是首个可运行版本的验收前置条件。
+
+未来启用时，它们只能读取已经提交的消息和运行结果，通过独立接口和独立数据表或索引保存派生数据；不得修改原始消息、Run、checkpoint、Operation Ledger 或系统事件。
 
 ### 10.1 概念边界
 
@@ -1021,7 +1055,7 @@ if result.run_id != session.active_run_id:
 
 ## 13. Session Store与持久化
 
-建议最终采用 SQLite，至少包括：
+V2 从首个可运行版本开始采用 SQLite3 作为 Runtime Store，至少包括：
 
 ```text
 sessions
@@ -1037,7 +1071,9 @@ task_results
 memories
 ```
 
-第一阶段可以继续使用内存存储，但接口必须先抽象，避免业务层直接依赖字典和 `InMemorySaver`。
+内存存储只作为单元测试替身，不承担桌面应用运行、崩溃恢复或并发一致性。Runtime Store 与 Memory、Knowledge Base 是不同的数据域；当前阶段不实现长期 Memory 自动提取和 Knowledge 索引。
+
+详细 schema、事务边界、WAL、迁移和备份策略见 [SQLite Runtime Store 设计](persistence-sqlite-runtime-store.md)。
 
 ## 14. Observability
 
@@ -1184,7 +1220,9 @@ agent/
 18. Finalize 生成最终回答并持久化。
 19. Session Runtime 释放会话锁。
 
-## 18. 实施阶段
+## 18. 架构能力分解
+
+本节只说明能力之间的概念分组，不再作为实际开发顺序。权威开发顺序、阶段裁剪和完成标准见 [V2 开发路线图](../development/roadmap.md)。例如 SQLite 从 M0/M1 即开始使用，最小 GUI 在后端闭环后立即进入 M2，而不是等待所有 Agent 能力完成。
 
 ### 阶段一：协议与状态
 
@@ -1228,12 +1266,13 @@ agent/
 - Planner按需启用；
 - 支持领域切换。
 
-### 阶段七：Context、Memory、Knowledge和Skill
+### 阶段七：Context 与可选信息能力
 
 - Context Profile；
 - Skill渐进加载；
-- Memory Store；
-- Knowledge Retrieval；
+- Context Manager；
+- Memory Store（后续可选）；
+- Knowledge Retrieval（后续可选）；
 - token预算和压缩。
 
 ### 阶段八：持久化与GUI

@@ -48,8 +48,8 @@ Graph 使用可序列化 `AgentState`。状态分为六组：
 identity      session_id / run_id
 conversation  user_input / messages
 coordination  command / plan / completed_tasks
-execution     active_agent / active_task / agent_messages
-tooling       pending_tool_calls / results / approval
+execution     task_executions / ready_task_ids / running_task_ids
+tooling       每个 TaskExecution 内的 pending_tool_call / results / approval
 runtime       status / budgets / errors / events
 ```
 
@@ -83,7 +83,7 @@ class CoordinatorCommand(BaseModel):
 ```python
 class ToolAction(BaseModel):
     type: Literal["tool"]
-    tool_calls: list[ToolCall]
+    tool_call: ToolCall
 
 class CompleteAction(BaseModel):
     type: Literal["completed"]
@@ -144,7 +144,7 @@ class FailAction(BaseModel):
 -根据 Command 创建 `AgentTask`；
 -验证目标 Agent 存在；
 -初始化该任务的 `agent_messages`；
--设置 `active_agent`；
+-在指定 `TaskExecution` 中设置 `agent_name`；
 -设置 Agent 局部预算；
 -构建首次 Context。
 
@@ -168,7 +168,7 @@ class FailAction(BaseModel):
 职责：
 
 -校验 ToolCall schema；
--验证 `requested_by == active_agent`；
+-验证 `requested_by == task_execution.agent_name`；
 -验证工具属于 Agent allowed tools；
 -调用 Policy Engine；
 -生成 allow/approval/deny 决策。
@@ -298,16 +298,16 @@ def route_agent_action(state: AgentState) -> str:
 | 当前状态 | 输入 | 下一状态 |
 |---|---|---|
 | initializing | 初始化成功 | coordinating |
-| coordinating | delegate | running_agent |
+| coordinating | delegate/fork | running_tasks |
 | coordinating | plan | planning |
 | coordinating | clarify | waiting_clarification |
-| coordinating | final | finalizing |
-| running_agent | tool | waiting_tool |
-| running_agent | complete/transfer | coordinating |
-| waiting_tool | allow | waiting_tool/executing |
-| waiting_tool | approval | waiting_approval |
-| waiting_approval | approve | waiting_tool/executing |
-| waiting_approval | reject | running_agent |
+| coordinating | final | composing_final |
+| running_tasks | 子任务产生 tool | 对应子任务进入 tool_preparing |
+| running_tasks | 子任务 complete/transfer | 更新 join 或 coordinating |
+| tool_preparing | allow | tool_executing |
+| tool_preparing | approval | waiting_approval |
+| waiting_approval | approve | tool_executing |
+| waiting_approval | reject | 对应子任务恢复 running_agent |
 | 任意非终态 | cancel | cancelled |
 | 任意非终态 | fatal error | failed |
 
@@ -425,4 +425,164 @@ GraphState 保存数据，GraphRuntime 提供服务。
 -取消可从所有非终态进入；
 -状态可完整序列化；
 -未知状态和未知动作默认拒绝。
+
+## 14. 执行语义修订
+
+本章补全 Graph 在崩溃恢复、工具副作用和最终提交方面的确定性语义。与前文章节冲突时，以本章为准。
+
+### 14.1 Run 内受控并行
+
+V2 支持同一 Run 内多个无依赖 Task 并行执行。单个 Agent step 仍只产生一个 ToolCall，但不同 TaskExecution 可以同时各自执行一个 ToolCall：
+
+```python
+class ToolAction(BaseModel):
+    type: Literal["tool"]
+    tool_call: ToolCall
+```
+
+模型在一个 Agent step 中返回多个工具调用时，解析器返回 `MULTIPLE_TOOL_CALLS_NOT_SUPPORTED`，并要求该 Agent 下一步只选择一个。这里限制的是单个任务步骤，不限制父 Run 中其他 TaskExecution 并行运行。
+
+父 Graph 维护 `TaskExecution` 集合：
+
+```python
+class TaskExecution(BaseModel):
+    task_id: str
+    attempt: int
+    status: Literal[
+        "pending", "ready", "running", "waiting_approval",
+        "waiting_clarification", "joining", "completed",
+        "failed", "blocked", "cancelled", "execution_unknown"
+    ]
+    agent_name: str | None
+    agent_messages_ref: str | None
+    pending_operation_id: str | None
+    checkpoint_id: str | None
+    budget: TaskBudget
+    lease: TaskLease | None
+    result_reference: str | None
+```
+
+Scheduler 从 DAG 中选择所有依赖已完成的 ready task，在 `max_parallel_tasks`、全局预算、Agent 配额和工具资源限制内执行 fork。每个子任务独立 checkpoint；父 Graph 只保存引用和聚合状态。
+
+Join 规则必须由计划定义：
+
+- `all_success`：全部成功后继续，一个失败即取消尚未开始的同组任务；
+- `all_settled`：等待全部进入终态，再由 Coordinator 汇总；
+- `min_success(n)`：达到成功阈值后可继续，并取消不再需要的任务；
+- `best_effort`：允许 partial/failed 结果参与汇总。
+
+实现阶段允许配置 `max_parallel_tasks = 1`，但存储模型、状态协议和测试必须使用 TaskExecution 集合，之后提高并发度不应改变上层契约。
+
+原有 `start_agent`、`agent_step`、`policy_check`、`execute_tool` 和 `apply_tool_result` 节点都必须接收 `task_id`，只读写对应 TaskExecution，不能再依赖全局单值 `active_agent` 或 `active_task`。父 Run 的 `running_tasks` 状态是多个子状态的聚合视图，不覆盖子任务真实状态。
+
+并发提交使用 `(run_id, task_id, task_revision)` CAS。不同任务可分别提交；会影响父 DAG readiness、共享预算或 join 状态的修改通过父 Run revision 原子合并。发生冲突时重新加载并重算聚合状态，不覆盖其他任务已提交结果。
+
+### 14.2 状态机补充
+
+父 Run 和子任务使用不同状态，不把多个子任务状态压成一个全局 `running_agent`：
+
+```python
+ParentRunStatus = Literal[
+    "initializing", "coordinating", "planning", "running_tasks",
+    "waiting_user", "joining", "compressing", "composing_final",
+    "committing_final", "execution_unknown", "completed", "cancelled", "failed",
+]
+
+TaskExecutionStatus = Literal[
+    "pending", "ready", "running_agent", "tool_preparing",
+    "waiting_approval", "waiting_clarification", "tool_executing",
+    "tool_reconciling", "joining", "completed", "failed",
+    "blocked", "cancelled", "execution_unknown",
+]
+```
+
+`waiting_tool/executing` 不再是复合状态。关键转换如下：
+
+| 当前状态 | 条件 | 下一状态 |
+|---|---|---|
+| `running_agent` | 单个 ToolCall | `tool_preparing` |
+| `tool_preparing` | deny | `running_agent` |
+| `tool_preparing` | require approval | `waiting_approval` |
+| `tool_preparing` | allow 且账本 prepared | `tool_executing` |
+| `waiting_approval` | approve 且票据有效 | `tool_executing` |
+| `tool_executing` | 结果已入账 | `running_agent` |
+| `tool_executing` | 恢复时状态不明 | `tool_reconciling` |
+| `tool_reconciling` | 无法确认 | `execution_unknown` |
+| `composing_final` | 回复生成成功 | `committing_final` |
+| `committing_final` | 原子提交成功 | `completed` |
+
+### 14.3 工具节点拆分
+
+工具链改为：
+
+```text
+prepare_tool_operation
+    -> policy_decide
+    -> approval_interrupt (optional)
+    -> execute_tool_operation
+    -> reconcile_tool_operation (recovery only)
+    -> apply_tool_result
+```
+
+`prepare_tool_operation` 生成稳定 `operation_id`，规范化参数并计算 `arguments_hash`，然后在 checkpoint 中保存引用。Policy 决策和审批票据都绑定：
+
+```text
+operation_id + tool_name + arguments_hash + principal + policy_version
+```
+
+任何字段变化都会使旧审批失效。
+
+`execute_tool_operation` 不直接决定是否重试。它只调用第四层 Tool Runtime，并读取 Operation Ledger 的确定状态。恢复时若账本为 `running/unknown`，必须先进入 `reconcile_tool_operation`。
+
+### 14.4 无副作用节点与副作用节点
+
+Graph 节点分两类：
+
+- 可重放节点：模型调用、Coordinator、Planner、Context 压缩、最终回复生成；输出尚未提交时可以重算。
+- 提交节点：工具执行、Interrupt 消费、artifact 发布、最终消息提交；必须通过幂等账本或原子事务执行。
+
+Checkpoint 只意味着 Graph 状态已提交，不意味着外部副作用可自动重放。
+
+### 14.5 最终回复拆分
+
+原 `finalize` 拆为：
+
+1. `compose_final_response`：只根据已提交 TaskResult 生成候选回复，无外部副作用。
+2. `commit_run_completion`：通过 SessionStore 的 `complete_run` 原子提交最终消息、RunResult、状态和 outbox event。
+
+最终消息使用 `(run_id, message_kind=final_assistant)` 唯一约束。事务结果未知时查询该键；存在则视为提交成功，不再生成第二条消息。
+
+### 14.6 Checkpoint 瘦身
+
+GraphState 不保存完整事件流、网页正文、stdout 或大型 ToolResult，只保存：
+
+- 身份、状态、revision 和预算计数；
+- 当前 Agent/Task/Operation 的稳定 ID；
+- 最近必要消息和工作摘要；
+- 独立消息、结果、artifact、event 的引用；
+- 尚未完成的 Interrupt 或 Operation 引用。
+
+事件、工具结果和大文本采用追加式存储。checkpoint 必须设置序列化大小上限，超限时先执行压缩或外置存储。
+
+### 14.7 重试规则补充
+
+- 模型调用可以按调用 ID 重试，只有成功解析的结果进入 checkpoint；
+- 只读且声明幂等的工具可按同一 `operation_id` 自动恢复；
+- 写入和破坏性工具不得因超时自动重放；
+- `execution_unknown` 不得被 Coordinator 当作普通失败绕过；
+- 预算在尝试前预留、提交后结算，恢复时不得重复扣减已入账调用；
+- 权限拒绝不是基础设施错误，作为结构化 ToolResult 返回 Agent。
+
+### 14.8 新增故障注入测试
+
+在以下每个边界前后终止进程并恢复：
+
+- Operation Ledger prepare 前后；
+- 工具产生副作用后、结果入账前；
+- ToolResult 入账后、应用到 Agent 消息前；
+- Interrupt 保存后、HTTP 响应前；
+- 最终消息提交前后；
+- outbox 写入后、事件发布前。
+
+验收条件是：不重复副作用、不重复最终消息、不丢失已提交结果，无法确定时稳定进入 `execution_unknown`。
 

@@ -9,7 +9,7 @@ Session Runtime 是整个系统的运行隔离层，目标是确保：
 - 每次请求都有独立、可追踪的 Run；
 - 取消、恢复和迟到结果不会破坏会话；
 - API、GUI 和 Graph 使用统一的会话状态；
-- 后续可以从内存存储平滑迁移到 SQLite。
+- SQLite3 从首个可运行版本开始就是权威 Runtime Store；内存实现只用于单元测试，不作为应用运行模式。
 
 本层不理解用户任务语义，不调用 LLM 判断任务类型，也不决定使用哪个专业 Agent。
 
@@ -270,17 +270,19 @@ class SessionStore(Protocol):
     def finish_run(self, run_id: str, status: str) -> None: ...
 ```
 
-首版实现：
-
-```text
-InMemorySessionStore
-```
-
-稳定后实现：
+应用实现：
 
 ```text
 SQLiteSessionStore
 ```
+
+测试替身：
+
+```text
+InMemorySessionStore（仅用于不涉及崩溃恢复和并发一致性的单元测试）
+```
+
+SQLite 的 schema、事务、迁移、备份和数据生命周期见 [SQLite Runtime Store 设计](persistence-sqlite-runtime-store.md)。
 
 ## 8. 对外接口
 
@@ -380,4 +382,144 @@ STORE_FAILURE
 -存储实现可替换；
 -API 层不持有 Agent 实例状态；
 -所有状态变化都有事件记录。
+
+## 13. 一致性与故障恢复修订
+
+本章是第一层的强制实现约束。前文中与本章冲突的示例接口，以本章为准。
+
+### 13.1 正确性边界
+
+`asyncio.Lock` 只用于减少单进程内的竞争，不承担跨进程正确性。正确性必须由持久化存储保证：
+
+- 每个 Session 最多存在一个非终态 Run；
+- Run 的每次状态提交都使用 `run_id + revision` 比较并交换；
+- Worker 必须持有未过期租约才可驱动 Run；
+- Session、Run、Message、Checkpoint 和 Outbox Event 的关联修改必须原子提交；
+- API 重试必须通过 `idempotency_key` 返回同一个 Run，而不是创建新 Run。
+
+数据库应至少具有以下约束：
+
+```sql
+UNIQUE(session_id) WHERE terminal = false
+UNIQUE(session_id, idempotency_key)
+UNIQUE(run_id, revision)
+UNIQUE(run_id, message_kind) WHERE message_kind = 'final_assistant'
+```
+
+若存储不支持部分唯一索引，必须使用 Session 行上的 `active_run_id` CAS 在同一事务中实现等价约束。
+
+### 13.2 Run 租约
+
+```python
+class RunLease(BaseModel):
+    run_id: str
+    worker_id: str
+    lease_token: str
+    lease_until: datetime
+    heartbeat_at: datetime
+
+class RunRecord(BaseModel):
+    run_id: str
+    session_id: str
+    status: RunStatus
+    revision: int
+    worker_id: str | None
+    lease_until: datetime | None
+    cancellation_requested: bool
+    recovery_attempts: int
+    checkpoint_id: str | None
+```
+
+规则：
+
+1. Worker 在执行 Graph 节点前获取或续约租约。
+2. 节点提交必须同时校验 `expected_revision`、`worker_id` 和 `lease_token`。
+3. 租约过期后，原 Worker 的迟到提交一律拒绝。
+4. 新 Worker 只能从最近一次已提交 checkpoint 接管。
+5. 租约不是工具副作用的互斥锁；工具副作用由第四层的 Operation Ledger 保证。
+
+### 13.3 原子存储接口
+
+原有细粒度 `append_message`、`finish_run` 仅可作为事务内部 repository 方法，业务层不得组合调用。业务层只使用以下原子操作：
+
+```python
+class SessionStore(Protocol):
+    def begin_run(
+        self,
+        *,
+        session_id: str,
+        expected_session_version: int,
+        user_message: SessionMessage,
+        idempotency_key: str,
+    ) -> RunSnapshot: ...
+
+    def commit_step(
+        self,
+        *,
+        run_id: str,
+        expected_revision: int,
+        lease_token: str,
+        checkpoint: GraphCheckpoint,
+        events: list[RuntimeEvent],
+    ) -> RunSnapshot: ...
+
+    def commit_interrupt(
+        self,
+        *,
+        run_id: str,
+        expected_revision: int,
+        lease_token: str,
+        checkpoint: GraphCheckpoint,
+        interrupt: InterruptRecord,
+        events: list[RuntimeEvent],
+    ) -> RunSnapshot: ...
+
+    def complete_run(
+        self,
+        *,
+        run_id: str,
+        expected_revision: int,
+        lease_token: str,
+        assistant_message: SessionMessage,
+        result: RunResultRecord,
+        events: list[RuntimeEvent],
+    ) -> RunSnapshot: ...
+```
+
+每个操作在一个事务中更新 Run、Session、checkpoint、消息和 outbox。事件发布失败不得回滚业务事实；后台 publisher 从 outbox 重试发布。
+
+### 13.4 Interrupt 幂等
+
+`ResumeRequest` 增加 `idempotency_key`。Interrupt 记录包含状态 `open/consumed/cancelled/expired`、`payload_schema_version` 和 `checkpoint_revision`。
+
+同一个 Resume 重试时返回第一次处理结果；不同 payload 使用同一 `idempotency_key` 时返回 `IDEMPOTENCY_CONFLICT`。消费 Interrupt 和提交恢复后的 checkpoint 必须在一个事务中完成。
+
+### 13.5 重启恢复矩阵
+
+| 持久状态 | 恢复动作 |
+|---|---|
+| `initializing/coordinating/running_tasks/planning/compressing/composing_final` | 从最近 checkpoint 重新执行无副作用节点；running_tasks 按各 TaskExecution checkpoint 分别接管 |
+| `waiting_approval/waiting_clarification` | 恢复 Interrupt，继续等待用户 |
+| `tool_preparing/tool_executing/tool_reconciling` | 查询 Operation Ledger，禁止直接重放 |
+| `cancelling` | 重建取消意图，终止可定位的执行并等待租约收敛 |
+| `execution_unknown` | 执行工具对账；无法确认时请求人工处理 |
+| 终态 | 不重新执行，只补发未发布 outbox event |
+
+启动恢复器扫描租约过期的非终态 Run，执行 CAS 接管。超过 `max_recovery_attempts` 后进入 `failed` 或 `execution_unknown`，不得无限恢复。
+
+### 13.6 取消的持久语义
+
+取消请求必须先原子写入 `cancellation_requested = true` 和事件，再通知内存 Token。进程重启后，新 Worker 从持久字段重建 Token。
+
+取消是协作式的，不等同于副作用回滚。已经成功的工具操作保留在账本中；需要回滚时必须调用显式补偿工具。无法确认工具状态时 Run 进入 `execution_unknown`，不能直接回到 `idle`。
+
+### 13.7 新增测试
+
+- 两个进程同时 `begin_run`，只产生一个 Run；
+- 同一 `idempotency_key` 重试返回相同 Run；
+- Worker 租约过期后迟到提交被拒绝；
+- 每个原子提交点前后强制崩溃，恢复后消息和事件不重复；
+- Resume 请求重复提交只消费一次 Interrupt；
+- 重启后 `cancelling` Run 可以继续收敛；
+- 工具执行状态恢复时不会未经对账重放工具。
 
