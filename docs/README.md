@@ -1,30 +1,12 @@
-# Agent Dogs 文档
+# Agent Dogs 当前设计
 
-## 文档类型
+本目录按“产品定位 → 技术路线 → 任务运行逻辑 → 开发顺序”组织。以下内容是设计基线，具体协议和实现细节将在对应阶段通过任务样例与验证结果继续收敛。
 
-| 目录 | 回答的问题 | 主要读者 |
-|---|---|---|
-| [architecture](architecture/README.md) | 最终系统是什么、边界和协议是什么 | 架构与模块负责人 |
-| [development](development/README.md) | 下一步开发什么、如何实现、何时算完成 | 开发人员 |
-| [decisions](decisions/README.md) | 为什么选择这一方案 | 所有维护者 |
-| [testing](testing/README.md) | 如何证明实现正确且可恢复 | 开发与测试人员 |
+1. [产品定位与能力边界](product.md)
+2. [主要技术路线](technical-route.md)
+3. [整体逻辑架构与任务编排](architecture.md)
+4. [分阶段开发路线图](roadmap.md)
 
-## 推荐阅读顺序
+旧版 Codex/V2 文档移至 [archive/v2](archive/README.md)。它保留 SQLite、运行状态、权限和操作记录等有价值的设计，但其中的架构分层、功能计划与里程碑不再是当前开发指令。
 
-新参与开发的人按以下顺序阅读：
-
-1. [总体架构](architecture/overview.md)
-2. [开发路线图](development/roadmap.md)
-3. 当前里程碑对应的功能文档
-4. 相关 ADR
-5. [测试策略](testing/test-strategy.md)
-
-## 文档规则
-
-- Architecture 描述稳定目标，不记录每日开发进度。
-- Development 描述阶段范围、接口、步骤和验收标准。
-- ADR 记录已经作出的重要技术决策，不用于写实现教程。
-- Testing 保存跨功能的测试方法；具体测试用例仍写入对应功能文档。
-- 实现改变架构协议时，先更新 Architecture 或 ADR，再更新功能文档。
-- 功能完成后保留开发文档，并将状态更新为 `completed`，不要删除历史范围。
-
+修改原则：先用真实任务定义成功标准，再确定协议和模块；将已验证的决定与开放问题分别记录，避免把设想写成已实现事实。
